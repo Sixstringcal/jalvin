@@ -1,0 +1,122 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Example 2: API call with Bibi
+// Shows: Bibi HTTP client, suspend fun, data class, sealed class, when
+// ─────────────────────────────────────────────────────────────────────────────
+
+import @jalvin/runtime.*
+
+// ── Data models ──────────────────────────────────────────────────────────────
+
+data class User(
+    val id: Int,
+    val name: String,
+    val email: String,
+    val avatarUrl: String?
+)
+
+data class Post(
+    val id: Int,
+    val userId: Int,
+    val title: String,
+    val body: String
+)
+
+// Sealed class for loading state — exhaustive when
+sealed class UiState<out T> {
+    object Loading : UiState<Nothing>()
+    data class Success<T>(val data: T) : UiState<T>()
+    data class Error(val message: String) : UiState<Nothing>()
+}
+
+// ── ViewModel ────────────────────────────────────────────────────────────────
+
+class UserViewModel : ViewModel() {
+    private val api = Bibi("https://jsonplaceholder.typicode.com") {
+        timeout(10_000)
+        headers { "Accept" to "application/json" }
+    }
+
+    val userState:  MutableStateFlow<UiState<User>>       = MutableStateFlow(UiState.Loading)
+    val postsState: MutableStateFlow<UiState<List<Post>>> = MutableStateFlow(UiState.Loading)
+
+    suspend fun loadUser(id: Int) {
+        userState.value = UiState.Loading
+        try {
+            val response = api.get<User>("/users/$id")
+            userState.value = UiState.Success(response.body())
+        } catch (e: BibiError) {
+            userState.value = UiState.Error("Failed to load user: ${e.message}")
+        }
+    }
+
+    suspend fun loadPosts(userId: Int) {
+        postsState.value = UiState.Loading
+        try {
+            val response = api.get<List<Post>>("/posts?userId=$userId")
+            postsState.value = UiState.Success(response.body())
+        } catch (e: BibiError) {
+            postsState.value = UiState.Error("Failed to load posts: ${e.message}")
+        }
+    }
+}
+
+// ── Components ───────────────────────────────────────────────────────────────
+
+component fun UserCard(user: User) {
+    return (
+        <div class="user-card">
+            {user.avatarUrl != null && <img src={user.avatarUrl!!} alt={user.name} />}
+            <h2>{user.name}</h2>
+            <p>{user.email}</p>
+        </div>
+    )
+}
+
+component fun PostCard(post: Post) {
+    return (
+        <div class="post-card">
+            <h3>{post.title}</h3>
+            <p>{post.body}</p>
+        </div>
+    )
+}
+
+component fun UserProfile(userId: Int) {
+    val vm = useViewModel("user-$userId") { UserViewModel() }
+    val userState = collectAsState(vm.userState)
+    val postsState = collectAsState(vm.postsState)
+
+    // Load data on mount
+    LaunchedEffect(listOf(userId)) {
+        vm.loadUser(userId)
+        vm.loadPosts(userId)
+    }
+
+    return (
+        <div class="profile">
+            {
+                when (userState) {
+                    is UiState.Loading -> <div class="spinner">Loading user...</div>
+                    is UiState.Success -> <UserCard user={userState.data} />
+                    is UiState.Error   -> <div class="error">{userState.message}</div>
+                }
+            }
+            <section class="posts">
+                <h2>Posts</h2>
+                {
+                    when (postsState) {
+                        is UiState.Loading -> <div class="spinner">Loading posts...</div>
+                        is UiState.Success -> postsState.data.map { post ->
+                            <PostCard key={post.id} post={post} />
+                        }
+                        is UiState.Error   -> <div class="error">{postsState.message}</div>
+                    }
+                }
+            </section>
+        </div>
+    )
+}
+
+fun main() {
+    println("API example — demonstrates Bibi + sealed class + when")
+}

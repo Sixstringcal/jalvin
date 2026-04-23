@@ -1,0 +1,102 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Example 4: Coroutines — launch, async, delay, withContext, StateFlow
+// ─────────────────────────────────────────────────────────────────────────────
+
+import @jalvin/runtime.*
+
+// Simulated slow operations
+suspend fun fetchFromDatabase(id: String): String {
+    delay(200)
+    return "db:record:$id"
+}
+
+suspend fun fetchFromCache(id: String): String? {
+    delay(50)
+    return if (id == "hot-key") "cached:$id" else null
+}
+
+suspend fun expensiveCompute(input: Int): Int {
+    delay(300)
+    return input * input
+}
+
+// Use async {} to run two fetches in parallel
+suspend fun fetchUserAndPosts(userId: String): Pair<String, String> {
+    val userDeferred  = async { fetchFromDatabase("user/$userId") }
+    val postsDeferred = async { fetchFromDatabase("posts/$userId") }
+
+    val user  = userDeferred.await()
+    val posts = postsDeferred.await()
+
+    return Pair(user, posts)
+}
+
+// StateFlow hoisted in a ViewModel
+class DownloadViewModel : ViewModel() {
+    val progress: MutableStateFlow<Int>     = MutableStateFlow(0)
+    val status:   MutableStateFlow<String>  = MutableStateFlow("Idle")
+
+    suspend fun startDownload(url: String) {
+        status.value = "Downloading $url"
+
+        for (chunk in 1..10) {
+            delay(100)
+            progress.update { chunk * 10 }
+            status.value = "Downloaded ${chunk * 10}%"
+        }
+
+        status.value = "Complete"
+    }
+
+    fun cancelDownload() {
+        status.value = "Cancelled"
+        progress.value = 0
+    }
+}
+
+// Component that drives a download with live progress
+component fun DownloadBar(url: String) {
+    val vm       = useViewModel("download") { DownloadViewModel() }
+    val progress = collectAsState(vm.progress)
+    val status   = collectAsState(vm.status)
+
+    LaunchedEffect(listOf(url)) {
+        vm.startDownload(url)
+    }
+
+    return (
+        <div class="download">
+            <p>{status}</p>
+            <progress value={progress} max={100} />
+            <button onClick={() => vm.cancelDownload()}>Cancel</button>
+        </div>
+    )
+}
+
+// Top-level coroutine example (Node.js / CLI usage)
+suspend fun main() {
+    println("=== Coroutines example ===")
+
+    // Parallel fetch
+    val (user, posts) = fetchUserAndPosts("42")
+    println("User:  $user")
+    println("Posts: $posts")
+
+    // withContext demo
+    val result = withContext(Dispatchers.Default) {
+        expensiveCompute(42)
+    }
+    println("42² = $result")
+
+    // Launch fire-and-forget
+    launch {
+        repeat(3) { i ->
+            delay(500)
+            println("background tick $i")
+        }
+    }
+
+    // Wait a bit so the background job can print
+    delay(2_000)
+    println("Done.")
+}

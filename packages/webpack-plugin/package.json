@@ -1,0 +1,29 @@
+{
+  "name": "@jalvin/webpack-plugin",
+  "version": "1.0.0",
+  "description": "Webpack loader for the Jalvin language — import .jalvin files directly",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "peerDependencies": {
+    "webpack": ">=5.0.0"
+  },
+  "dependencies": {
+    "@jalvin/compiler": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0",
+    "webpack": "^5.0.0",
+    "@types/webpack": "^5.0.0"
+  }
+}

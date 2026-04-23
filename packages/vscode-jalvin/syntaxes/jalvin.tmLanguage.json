@@ -1,0 +1,107 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Jalvin",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#types"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.jalvin",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.jalvin",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.jalvin",
+          "match": "\\b(if|else|when|for|while|do|return|break|continue|throw|try|catch|finally|launch|async|await)\\b"
+        },
+        {
+          "name": "keyword.declaration.jalvin",
+          "match": "\\b(fun|component|class|data|sealed|enum|interface|object|val|var|typealias|package|import)\\b"
+        },
+        {
+          "name": "keyword.other.jalvin",
+          "match": "\\b(in|is|as|by|init|const|lateinit|operator|infix|inline|reified|tailrec|external|open|override|abstract|final|private|protected|internal|public|suspend)\\b"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.triple.jalvin",
+          "begin": "\"\"\"",
+          "end": "\"\"\""
+        },
+        {
+          "name": "string.quoted.double.jalvin",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.jalvin",
+              "match": "\\\\."
+            },
+            {
+              "name": "variable.parameter.jalvin",
+              "match": "\\$[a-zA-Z_][a-zA-Z0-9_]*"
+            },
+            {
+              "name": "variable.parameter.jalvin",
+              "begin": "\\$\\{",
+              "end": "\\}",
+              "patterns": [
+                {
+                  "include": "$self"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.jalvin",
+          "match": "\\b(true|false|null|this|super)\\b"
+        },
+        {
+          "name": "constant.numeric.jalvin",
+          "match": "\\b(0[xX][0-9a-fA-F_]+|0[bB][01_]+|[0-9_]+(\\.[0-9_]+)?([eE][+-]?[0-9_]+)?[fFLdD]?)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "entity.name.type.jalvin",
+          "match": "\\b(Int|Long|Float|Double|Boolean|String|Char|Unit|Any|Nothing|List|MutableList|Set|MutableSet|Map|MutableMap|Deferred|StateFlow)\\b"
+        }
+      ]
+    }
+  },
+  "scopeName": "source.jalvin"
+}

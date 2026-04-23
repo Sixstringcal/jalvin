@@ -1,0 +1,35 @@
+{
+  "name": "vscode-jalvin",
+  "displayName": "Jalvin",
+  "description": "Syntax highlighting for the Jalvin programming language",
+  "version": "1.0.0",
+  "publisher": "jalvin-lang",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "jalvin",
+        "aliases": [
+          "Jalvin",
+          "jalvin"
+        ],
+        "extensions": [
+          ".jalvin"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "jalvin",
+        "scopeName": "source.jalvin",
+        "path": "./syntaxes/jalvin.tmLanguage.json"
+      }
+    ]
+  }
+}

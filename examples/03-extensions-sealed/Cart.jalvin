@@ -1,0 +1,118 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Example 3: Extension functions, data classes, sealed class + when
+// ─────────────────────────────────────────────────────────────────────────────
+
+import @jalvin/runtime.*
+
+// ── Data classes ─────────────────────────────────────────────────────────────
+
+data class Money(val amount: Double, val currency: String) {
+    override fun toString() = "${amount.toFixed(2)} $currency"
+}
+
+data class Cart(
+    val id: String,
+    val items: List<CartItem>,
+    val discount: Discount?
+)
+
+data class CartItem(
+    val productId: String,
+    val name: String,
+    val price: Money,
+    val quantity: Int
+)
+
+// ── Sealed class for discounts ────────────────────────────────────────────────
+
+sealed class Discount {
+    data class Percentage(val percent: Double) : Discount()
+    data class Fixed(val amount: Money) : Discount()
+    object FreeShipping : Discount()
+}
+
+// ── Extension functions ───────────────────────────────────────────────────────
+
+fun Cart.subtotal(): Money {
+    val total = items.sumOf { it.price.amount * it.quantity }
+    return Money(total, items.firstOrNull()?.price?.currency ?: "USD")
+}
+
+fun Cart.totalAfterDiscount(): Money {
+    val sub = subtotal()
+    return when (discount) {
+        is Discount.Percentage -> sub.copy(amount = sub.amount * (1 - discount.percent / 100))
+        is Discount.Fixed      -> sub.copy(amount = (sub.amount - discount.amount.amount).coerceAtLeast(0.0))
+        is Discount.FreeShipping -> sub   // shipping handled separately
+        null                   -> sub
+    }
+}
+
+fun Cart.itemCount(): Int = items.sumOf { it.quantity }
+
+fun String.truncate(maxLength: Int): String {
+    return if (length <= maxLength) this else "${take(maxLength)}…"
+}
+
+fun Double.toFixed(decimals: Int): String {
+    val factor = Math.pow(10.0, decimals.toDouble())
+    return (Math.round(this * factor) / factor).toString()
+}
+
+// ── Component ────────────────────────────────────────────────────────────────
+
+component fun CartSummary(cart: Cart) {
+    val subtotal = remember { cart.subtotal() }
+    val total    = remember { cart.totalAfterDiscount() }
+
+    return (
+        <div class="cart">
+            <h2>Your Cart ({cart.itemCount()} items)</h2>
+
+            <ul>
+                {cart.items.map { item ->
+                    <li key={item.productId}>
+                        <span>{item.name.truncate(30)}</span>
+                        <span>x{item.quantity}</span>
+                        <span>{item.price}</span>
+                    </li>
+                }}
+            </ul>
+
+            <div class="summary">
+                <p>Subtotal: {subtotal}</p>
+                {cart.discount != null && (
+                    <p class="discount">
+                        Discount: {
+                            when (cart.discount) {
+                                is Discount.Percentage   -> "${cart.discount.percent}% off"
+                                is Discount.Fixed        -> "-${cart.discount.amount}"
+                                is Discount.FreeShipping -> "Free shipping"
+                            }
+                        }
+                    </p>
+                )}
+                <p class="total"><strong>Total: {total}</strong></p>
+            </div>
+        </div>
+    )
+}
+
+// ── Entry ─────────────────────────────────────────────────────────────────────
+
+fun main() {
+    val cart = Cart(
+        id = "cart-001",
+        items = listOf(
+            CartItem("p1", "Mechanical Keyboard", Money(149.99, "USD"), 1),
+            CartItem("p2", "USB-C Hub",           Money(39.99,  "USD"), 2),
+            CartItem("p3", "Desk Mat",             Money(24.99,  "USD"), 1),
+        ),
+        discount = Discount.Percentage(10.0)
+    )
+
+    println("Cart: ${cart.id}")
+    println("Items: ${cart.itemCount()}")
+    println("Subtotal: ${cart.subtotal()}")
+    println("Total after 10% discount: ${cart.totalAfterDiscount()}")
+}

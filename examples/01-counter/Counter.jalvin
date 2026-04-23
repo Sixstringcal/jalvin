@@ -1,0 +1,44 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Example 1: Counter — basic state, component fun, mutableStateOf
+// ─────────────────────────────────────────────────────────────────────────────
+
+import @jalvin/runtime.*
+
+// A simple counter view model
+class CounterViewModel : ViewModel() {
+    val count: MutableStateFlow<Int> = MutableStateFlow(0)
+
+    fun increment() {
+        count.update { it + 1 }
+    }
+
+    fun decrement() {
+        count.update { it - 1 }
+    }
+
+    fun reset() {
+        count.value = 0
+    }
+}
+
+// Counter component — annotated with `component fun` instead of @Composable
+component fun Counter() {
+    val vm = useViewModel("counter") { CounterViewModel() }
+    val count = collectAsState(vm.count)
+
+    return (
+        <div class="counter">
+            <h1>Count: {count}</h1>
+            <div class="buttons">
+                <button onClick={() => vm.decrement()}>-</button>
+                <button onClick={() => vm.reset()}>Reset</button>
+                <button onClick={() => vm.increment()}>+</button>
+            </div>
+        </div>
+    )
+}
+
+// Entry point — render the counter
+fun main() {
+    println("Counter example — open in browser with Vite")
+}
