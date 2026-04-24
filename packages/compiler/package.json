@@ -11,6 +11,8 @@
       "types": "./dist/index.d.ts"
     }
   },
+  "publishConfig": { "access": "public" },
+  "files": ["dist", "!dist/__tests__"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

@@ -72,7 +72,7 @@ export function AsyncImage({
     status === "loading" && loadingPlaceholder,
     React.createElement(Image, {
       src,
-      alt,
+      alt: alt ?? "",
       modifier,
       contentScale,
       onClick,
