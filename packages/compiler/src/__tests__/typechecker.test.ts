@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { compile } from "../index.js";
+import { compile } from "../../dist/index.js";
 
 function compileOk(src: string) {
   const result = compile(src, "<test>");

@@ -1,0 +1,236 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Jalvin",
+  "scopeName": "source.jalvin",
+  "fileTypes": ["jalvin"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#jsx-tags" },
+    { "include": "#annotations" },
+    { "include": "#function-declaration" },
+    { "include": "#class-declaration" },
+    { "include": "#keywords" },
+    { "include": "#constants" },
+    { "include": "#numbers" },
+    { "include": "#builtin-types" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.jalvin",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.jalvin",
+          "begin": "/\\*",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.begin.jalvin" } },
+          "end": "\\*/",
+          "endCaptures": { "0": { "name": "punctuation.definition.comment.end.jalvin" } },
+          "patterns": [{ "include": "#comments" }]
+        }
+      ]
+    },
+
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.triple.jalvin",
+          "begin": "\"\"\"",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.jalvin" } },
+          "end": "\"\"\"",
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.jalvin" } },
+          "patterns": [{ "include": "#string-interpolation" }]
+        },
+        {
+          "name": "string.quoted.double.jalvin",
+          "begin": "\"",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.jalvin" } },
+          "end": "\"",
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.jalvin" } },
+          "patterns": [
+            { "name": "constant.character.escape.jalvin", "match": "\\\\." },
+            { "include": "#string-interpolation" }
+          ]
+        }
+      ]
+    },
+
+    "string-interpolation": {
+      "patterns": [
+        {
+          "name": "meta.template.expression.jalvin",
+          "begin": "\\$\\{",
+          "beginCaptures": { "0": { "name": "punctuation.definition.template-expression.begin.jalvin" } },
+          "end": "\\}",
+          "endCaptures": { "0": { "name": "punctuation.definition.template-expression.end.jalvin" } },
+          "patterns": [{ "include": "$self" }]
+        },
+        {
+          "name": "variable.other.template.jalvin",
+          "match": "\\$[a-zA-Z_][a-zA-Z0-9_]*"
+        }
+      ]
+    },
+
+    "jsx-tags": {
+      "patterns": [
+        {
+          "comment": "JSX closing tag",
+          "name": "meta.tag.jsx.closing.jalvin",
+          "match": "(</)([A-Za-z][a-zA-Z0-9.-]*)(>)",
+          "captures": {
+            "1": { "name": "punctuation.definition.tag.begin.jalvin" },
+            "2": { "name": "entity.name.tag.jalvin" },
+            "3": { "name": "punctuation.definition.tag.end.jalvin" }
+          }
+        },
+        {
+          "comment": "JSX opening/self-closing tag — component (uppercase) or HTML element with lookahead",
+          "name": "meta.tag.jsx.jalvin",
+          "begin": "(?<![a-zA-Z0-9_])(<)([A-Z][a-zA-Z0-9.]*|[a-z][a-zA-Z0-9.-]*(?=[\\s>/>]))",
+          "beginCaptures": {
+            "1": { "name": "punctuation.definition.tag.begin.jalvin" },
+            "2": { "name": "entity.name.tag.jalvin" }
+          },
+          "end": "(/?>)",
+          "endCaptures": { "1": { "name": "punctuation.definition.tag.end.jalvin" } },
+          "patterns": [
+            {
+              "name": "entity.other.attribute-name.jsx.jalvin",
+              "match": "\\b[a-zA-Z_][a-zA-Z0-9_-]*(?=\\s*=|\\s*/>|\\s*>)"
+            },
+            { "include": "#strings" },
+            {
+              "name": "meta.embedded.expression.jsx.jalvin",
+              "begin": "\\{",
+              "beginCaptures": { "0": { "name": "punctuation.section.embedded.begin.jalvin" } },
+              "end": "\\}",
+              "endCaptures": { "0": { "name": "punctuation.section.embedded.end.jalvin" } },
+              "patterns": [{ "include": "$self" }]
+            }
+          ]
+        }
+      ]
+    },
+
+    "annotations": {
+      "name": "entity.other.attribute-name.annotation.jalvin",
+      "match": "@[a-zA-Z_][a-zA-Z0-9_]*"
+    },
+
+    "function-declaration": {
+      "patterns": [
+        {
+          "comment": "component fun / suspend fun / fun with name",
+          "match": "\\b(component\\s+fun|suspend\\s+fun|fun)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.fun.jalvin" },
+            "2": { "name": "entity.name.function.jalvin" }
+          }
+        }
+      ]
+    },
+
+    "class-declaration": {
+      "patterns": [
+        {
+          "comment": "data class / sealed class / enum class / other class variants",
+          "match": "\\b(data\\s+class|sealed\\s+class|enum\\s+class|abstract\\s+class|open\\s+class|class|interface|companion\\s+object|object)\\s+([A-Za-z_][a-zA-Z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.class.jalvin" },
+            "2": { "name": "entity.name.type.class.jalvin" }
+          }
+        }
+      ]
+    },
+
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.jalvin",
+          "match": "\\b(if|else|when|for|while|do|return|break|continue|throw|try|catch|finally|in|is|as|by)\\b"
+        },
+        {
+          "comment": "!in and !is operators",
+          "name": "keyword.operator.jalvin",
+          "match": "!(in|is)\\b"
+        },
+        {
+          "name": "keyword.declaration.jalvin",
+          "match": "\\b(fun|component|class|val|var|import|package|typealias|companion|init|object|interface|enum|data|sealed)\\b"
+        },
+        {
+          "name": "storage.modifier.jalvin",
+          "match": "\\b(abstract|override|open|final|private|protected|internal|suspend|launch|async|await|const|lateinit|operator|infix|inline|reified|tailrec|external)\\b"
+        }
+      ]
+    },
+
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.jalvin",
+          "match": "\\b(true|false|null)\\b"
+        },
+        {
+          "name": "variable.language.jalvin",
+          "match": "\\b(this|super)\\b"
+        }
+      ]
+    },
+
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.jalvin",
+          "match": "\\b0[xX][0-9a-fA-F][0-9a-fA-F_]*L?\\b"
+        },
+        {
+          "name": "constant.numeric.binary.jalvin",
+          "match": "\\b0[bB][01][01_]*L?\\b"
+        },
+        {
+          "name": "constant.numeric.float.jalvin",
+          "match": "\\b[0-9][0-9_]*(?:\\.[0-9][0-9_]*)?[fF]\\b"
+        },
+        {
+          "name": "constant.numeric.double.jalvin",
+          "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*\\b"
+        },
+        {
+          "name": "constant.numeric.long.jalvin",
+          "match": "\\b[0-9][0-9_]*L\\b"
+        },
+        {
+          "name": "constant.numeric.integer.jalvin",
+          "match": "\\b[0-9][0-9_]*\\b"
+        }
+      ]
+    },
+
+    "builtin-types": {
+      "name": "support.type.builtin.jalvin",
+      "match": "\\b(Int|Long|Short|Byte|Float|Double|Boolean|String|Char|Unit|Any|Nothing|List|MutableList|Set|MutableSet|Map|MutableMap|Pair|Triple|Array|ByteArray|IntArray|Deferred|StateFlow|MutableStateFlow|Result|Sequence|Iterable|Comparable|Number|Throwable|Exception|Error)\\b"
+    },
+
+    "operators": {
+      "patterns": [
+        { "name": "keyword.operator.safe-call.jalvin",   "match": "\\?\\." },
+        { "name": "keyword.operator.elvis.jalvin",       "match": "\\?:" },
+        { "name": "keyword.operator.not-null.jalvin",    "match": "!!" },
+        { "name": "keyword.operator.arrow.jalvin",       "match": "->" },
+        { "name": "keyword.operator.range.jalvin",       "match": "\\.\\.[<]?" },
+        { "name": "keyword.operator.spread.jalvin",      "match": "\\*(?=[a-zA-Z_])" },
+        {
+          "name": "keyword.operator.jalvin",
+          "match": "===|!==|==|!=|<=|>=|&&|\\|\\||\\+\\+|--|\\+=|-=|\\*=|/=|%=|=(?!=)"
+        }
+      ]
+    }
+
+  }
+}

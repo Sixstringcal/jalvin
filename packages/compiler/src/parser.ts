@@ -31,6 +31,8 @@ export class Parser {
   private readonly diag: DiagnosticBag;
   private readonly file: string;
   private readonly source: string;
+  private depth = 0;
+
 
   constructor(tokens: Token[], file: string, diag: DiagnosticBag, source = "") {
     this.tokens = tokens;
@@ -891,7 +893,8 @@ export class Parser {
     const start = this.current().span;
 
     // Function type: (A, B) -> C  or  Receiver.(A) -> B
-    if (this.check(TokenKind.LParen)) {
+    // Use lookahead to confirm `(...) ->` before speculatively parsing.
+    if (this.check(TokenKind.LParen) && this.looksLikeFunctionType()) {
       const saved = this.pos;
       try {
         return this.parseFunctionType(null);
@@ -931,12 +934,15 @@ export class Parser {
     const start = this.current().span;
     this.expect(TokenKind.LParen);
     const params: AST.TypeRef[] = [];
-    while (!this.check(TokenKind.RParen)) {
+    while (!this.check(TokenKind.RParen) && !this.check(TokenKind.EOF)) {
       // Named param: `name: Type` — we just discard the name
       if (this.check(TokenKind.Identifier) && this.checkNext(TokenKind.Colon)) {
         this.advance(); this.advance();
       }
+      const prevPos = this.pos;
       params.push(this.parseTypeRef());
+      // Safety: if parseTypeRef didn't advance, bail to prevent infinite loop
+      if (this.pos === prevPos) break;
       if (!this.check(TokenKind.RParen)) this.expect(TokenKind.Comma);
     }
     this.expect(TokenKind.RParen);
@@ -951,10 +957,25 @@ export class Parser {
     };
   }
 
+  /** Lookahead: scan past matching parens to see if followed by `->` */
+  private looksLikeFunctionType(): boolean {
+    let i = this.pos + 1; // skip the opening `(`
+    let depth = 1;
+    while (i < this.tokens.length && depth > 0) {
+      const k = this.tokens[i]!.kind;
+      if (k === TokenKind.LParen) depth++;
+      else if (k === TokenKind.RParen) depth--;
+      else if (k === TokenKind.EOF) return false;
+      i++;
+    }
+    // After closing `)`, the next token must be `->`
+    return this.tokens[i]?.kind === TokenKind.Arrow;
+  }
+
   private parseTypeArgs(): AST.TypeArg[] {
     this.expect(TokenKind.Lt);
     const args: AST.TypeArg[] = [];
-    while (!this.check(TokenKind.Gt)) {
+    while (!this.check(TokenKind.Gt) && !this.check(TokenKind.EOF)) {
       const span = this.current().span;
       if (this.check(TokenKind.Star)) {
         this.advance();
@@ -976,7 +997,7 @@ export class Parser {
     if (!this.check(TokenKind.Lt)) return [];
     this.advance();
     const params: AST.TypeParam[] = [];
-    while (!this.check(TokenKind.Gt)) {
+    while (!this.check(TokenKind.Gt) && !this.check(TokenKind.EOF)) {
       const span = this.current().span;
       let reified = false;
       let variance: "in" | "out" | null = null;
@@ -1143,7 +1164,7 @@ export class Parser {
     }
     this.expect(TokenKind.LBrace);
     const branches: AST.WhenBranch[] = [];
-    while (!this.check(TokenKind.RBrace)) {
+    while (!this.check(TokenKind.RBrace) && !this.check(TokenKind.EOF)) {
       branches.push(this.parseWhenBranch());
       while (this.check(TokenKind.Semicolon)) this.advance();
     }
@@ -1214,7 +1235,7 @@ export class Parser {
     if (this.check(TokenKind.LParen)) {
       this.advance();
       const names: (string | null)[] = [];
-      while (!this.check(TokenKind.RParen)) {
+      while (!this.check(TokenKind.RParen) && !this.check(TokenKind.EOF)) {
         if (this.check(TokenKind.Underscore)) { names.push(null); this.advance(); }
         else names.push(this.expectIdentifier());
         if (!this.check(TokenKind.RParen)) this.expect(TokenKind.Comma);
@@ -1282,7 +1303,11 @@ export class Parser {
   // ── Expressions (Pratt parser / precedence climbing) ──────────────────────
 
   private parseExpr(): AST.Expr {
-    return this.parseAssign();
+    if (this.depth++ > 200) throw new Error(`Infinite recursion detected in parser at Pos ${this.pos} (${this.current().kind})`);
+
+    const res = this.parseAssign();
+    this.depth--;
+    return res;
   }
 
   private parseAssign(): AST.Expr {
@@ -1531,8 +1556,6 @@ export class Parser {
           break;
         }
         case TokenKind.LParen: {
-          // function call
-          const typeArgs: AST.TypeArg[] = [];
           const args = this.parseCallArgs();
           let trailingLambda: AST.LambdaExpr | null = null;
           if (this.check(TokenKind.LBrace)) {
@@ -1542,14 +1565,15 @@ export class Parser {
             kind: "CallExpr",
             span: AST.spanFrom(expr.span, this.prevSpan()),
             callee: expr,
-            typeArgs,
+            typeArgs: [],
             args,
             trailingLambda,
           };
           break;
         }
         case TokenKind.Lt: {
-          // Possibly generic type args: foo<T>(...)
+          if (this.current().span.startOffset > 0 && this.source[this.current().span.startOffset - 1] === "\n") break loop;
+          if (this.tokens[this.pos + 1]?.kind === TokenKind.Identifier) break loop;
           const saved = this.pos;
           try {
             const typeArgs = this.parseTypeArgs();
@@ -1593,7 +1617,6 @@ export class Parser {
           };
           break;
         }
-        // Trailing lambda: foo { ... }
         case TokenKind.LBrace: {
           if (!this.isStartOfNewStatement()) {
             const lambda = this.parseLambda();
@@ -1614,7 +1637,6 @@ export class Parser {
           break loop;
       }
     }
-
     return expr;
   }
 
@@ -1753,11 +1775,11 @@ export class Parser {
         attrs.push({ span: attrStart, name: attrName, value: null });
         continue;
       }
-      this.advance(); // consume '='
+      this.advance(); // consume "="
 
       if (this.check(TokenKind.StringLiteral)) {
-        const tok = this.advance();
-        attrs.push({ span: AST.spanFrom(attrStart, tok.span), name: attrName, value: tok.value as string });
+        const expr = this.parseStringLiteralExpr();
+        attrs.push({ span: AST.spanFrom(attrStart, expr.span), name: attrName, value: expr });
       } else if (this.check(TokenKind.LBrace)) {
         this.advance();
         const expr = this.parseExpr();
@@ -1765,7 +1787,6 @@ export class Parser {
         attrs.push({ span: AST.spanFrom(attrStart, this.prevSpan()), name: attrName, value: expr });
       }
     }
-
     // Self-closing: />
     if (this.check(TokenKind.Slash)) {
       this.advance();
@@ -1773,12 +1794,12 @@ export class Parser {
       return { kind: "JsxElement", span: AST.spanFrom(start, this.prevSpan()), tag, attrs, children: [] };
     }
 
-    this.expect(TokenKind.Gt); // consume opening '>'
+    this.expect(TokenKind.Gt); // consume opening ">"
 
-    // Children
     const children: AST.JsxChild[] = [];
+
     while (!this.check(TokenKind.EOF)) {
-      // Skip synthetic semicolons
+
       while (this.check(TokenKind.Semicolon)) this.advance();
 
       // Closing tag: </
@@ -1902,7 +1923,7 @@ export class Parser {
     }
     this.expect(TokenKind.LBrace);
     const branches: AST.WhenBranch[] = [];
-    while (!this.check(TokenKind.RBrace)) {
+    while (!this.check(TokenKind.RBrace) && !this.check(TokenKind.EOF)) {
       branches.push(this.parseWhenBranch());
       while (this.check(TokenKind.Semicolon)) this.advance();
     }

@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { lex } from "../lexer.js";
-import { parse } from "../parser.js";
-import { DiagnosticBag } from "../diagnostics.js";
-import type { Program, FunDecl, ClassDecl, DataClassDecl } from "../ast.js";
+import { lex } from "../../dist/lexer.js";
+import { parse } from "../../dist/parser.js";
+import { DiagnosticBag } from "../../dist/diagnostics.js";
+import type { Program, FunDecl, ClassDecl, DataClassDecl } from "../../dist/ast.js";
 
 function parseSource(src: string): { program: Program; diag: DiagnosticBag } {
   const diag = new DiagnosticBag();

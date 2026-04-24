@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { compile } from "../index.js";
+import { compile } from "../../dist/index.js";
 
 function gen(src: string): string {
   // Inject some standard globals so the typechecker is happy and we get code output.
