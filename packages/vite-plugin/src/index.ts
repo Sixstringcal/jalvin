@@ -12,9 +12,32 @@
 // You can then import .jalvin files directly in your app:
 //
 //   import { Counter } from "./Counter.jalvin";
+//
+// To run a Jalvin UI app without any hand-written index.html or entry file,
+// specify an `entry` option:
+//
+//   export default defineConfig({
+//     plugins: [jalvin({
+//       entry: { file: "./UIShowcase.jalvin", component: "UIShowcase" }
+//     })],
+//   });
 // ─────────────────────────────────────────────────────────────────────────────
 
+import * as path from "node:path";
+import * as fs from "node:fs";
 import { compile } from "@jalvin/compiler";
+
+const VIRTUAL_ENTRY = "virtual:@jalvin/app-entry";
+const VIRTUAL_ENTRY_RESOLVED = "\0virtual:@jalvin/app-entry";
+
+export interface JalvinAppEntry {
+  /** Path to the root .jalvin file, relative to the Vite project root. */
+  file: string;
+  /** Name of the component to mount as the React root. */
+  component: string;
+  /** Optional page title for the generated HTML. */
+  title?: string;
+}
 
 export interface JalvinViteOptions {
   /**
@@ -32,6 +55,49 @@ export interface JalvinViteOptions {
    * Default: "@jalvin/runtime"
    */
   runtimeImport?: string;
+  /**
+   * When set, the plugin generates a virtual index.html and React entry point
+   * so no hand-written index.html or main.tsx is needed in the project.
+   */
+  entry?: JalvinAppEntry;
+}
+
+function generateIndexHtml(title: string, scriptSrc: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>${title}</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #fafafa;
+        color: #1c1c1c;
+      }
+      #root { min-height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="${scriptSrc}"></script>
+  </body>
+</html>`;
+}
+
+function generateEntryModule(entryFilePath: string, component: string): string {
+  // Use React.createElement to avoid needing JSX in the virtual module itself.
+  return [
+    `import React from "react";`,
+    `import ReactDOM from "react-dom/client";`,
+    `import { ${component} } from ${JSON.stringify(entryFilePath)};`,
+    ``,
+    `ReactDOM.createRoot(document.getElementById("root")).render(`,
+    `  React.createElement(React.StrictMode, null, React.createElement(${component}))`,
+    `);`,
+  ].join("\n");
 }
 
 export function jalvin(opts: JalvinViteOptions = {}): any {
@@ -49,13 +115,30 @@ export function jalvin(opts: JalvinViteOptions = {}): any {
       viteConfig = config;
     },
 
+    config(cfg: any, { command }: { command: string }) {
+      if (!opts.entry) return;
+      if (command === "build") {
+        // For builds, set the virtual entry as the rollup input.
+        const rollupOptions = cfg.build?.rollupOptions ?? {};
+        rollupOptions.input = VIRTUAL_ENTRY;
+        cfg.build = { ...(cfg.build ?? {}), rollupOptions };
+      }
+    },
+
     resolveId(id: string, importer: string | undefined) {
-      // Allow .jalvin imports without explicit extension in some scenarios
+      if (id === VIRTUAL_ENTRY) return VIRTUAL_ENTRY_RESOLVED;
       if (isJalvinFile(id)) return id;
       return null;
     },
 
-    transform(code: string, id: string) {
+    load(id: string) {
+      if (id !== VIRTUAL_ENTRY_RESOLVED || !opts.entry) return null;
+      const root = viteConfig?.root ?? process.cwd();
+      const entryFilePath = path.resolve(root, opts.entry.file);
+      return generateEntryModule(entryFilePath, opts.entry.component);
+    },
+
+    async transform(code: string, id: string) {
       if (!isJalvinFile(id)) return null;
 
       const result = compile(code, id, {
@@ -85,17 +168,59 @@ export function jalvin(opts: JalvinViteOptions = {}): any {
         }
       }
 
+      // The compiled output is TSX with JSX syntax. We need to transform
+      // JSX → JS here because Vite's React plugin only handles .tsx/.jsx files.
+      // Use a dynamic import to work around vite's deprecated CJS type stub.
+      const { transformWithEsbuild } = await (import("vite") as Promise<any>);
+      const tsxResult = await transformWithEsbuild(result.code, id + ".tsx", {
+        jsx: "automatic",
+        loader: "tsx",
+        target: "esnext",
+      });
+
       return {
-        code: result.code,
-        // Basic line map for source-map support
-        map: {
-          version: 3 as const,
-          sources: [id],
-          sourcesContent: [code],
-          mappings: "",
-          names: [],
-        },
+        code: tsxResult.code,
+        map: tsxResult.map,
       };
+    },
+
+    configureServer(server: any) {
+      if (!opts.entry) return;
+      // Return a post-hook (runs after Vite's own middlewares).
+      // When no static index.html exists, Vite passes requests for "/" through,
+      // so this middleware catches them and serves the generated HTML.
+      return () => {
+        server.middlewares.use(async (req: any, res: any, next: () => void) => {
+          const url: string = req.url ?? "/";
+          if (url !== "/" && url !== "/index.html") {
+            next();
+            return;
+          }
+          const root: string = viteConfig?.root ?? process.cwd();
+          // If a static index.html already exists, let Vite handle it normally.
+          if (fs.existsSync(path.join(root, "index.html"))) {
+            next();
+            return;
+          }
+          const title = opts.entry!.title ?? "Jalvin App";
+          const html = generateIndexHtml(title, `/${VIRTUAL_ENTRY}`);
+          const transformed: string = await server.transformIndexHtml(url, html);
+          res.setHeader("Content-Type", "text/html");
+          res.end(transformed);
+        });
+      };
+    },
+
+    generateBundle(_: any, bundle: Record<string, any>) {
+      if (!opts.entry) return;
+      // Find the entry chunk to reference in the emitted HTML.
+      const entryChunk = Object.values(bundle).find(
+        (c: any) => c.type === "chunk" && c.isEntry
+      ) as any | undefined;
+      const scriptSrc = entryChunk ? `./${entryChunk.fileName}` : `./${VIRTUAL_ENTRY}`;
+      const title = opts.entry.title ?? "Jalvin App";
+      const html = generateIndexHtml(title, scriptSrc);
+      this.emitFile({ type: "asset", fileName: "index.html", source: html });
     },
 
     handleHotUpdate({ file, server }: { file: string; server: any }) {

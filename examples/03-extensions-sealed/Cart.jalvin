@@ -3,11 +3,18 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import @jalvin/runtime.*
-
+import @jalvin/ui.Column
+import @jalvin/ui.Row
+import @jalvin/ui.Text
+import @jalvin/ui.Card
+import @jalvin/ui.Divider
+import @jalvin/ui.Modifier
+import @jalvin/ui.TextStyle
+import @jalvin/ui.Color
 // ── Data classes ─────────────────────────────────────────────────────────────
 
 data class Money(val amount: Double, val currency: String) {
-    override fun toString() = "${amount.toFixed(2)} $currency"
+    fun toString() = "${amount.toFixed(2)} $currency"
 }
 
 data class Cart(
@@ -65,37 +72,46 @@ component fun CartSummary(cart: Cart) {
     val subtotal = remember { cart.subtotal() }
     val total    = remember { cart.totalAfterDiscount() }
 
-    return (
-        <div class="cart">
-            <h2>Your Cart ({cart.itemCount()} items)</h2>
-
-            <ul>
-                {cart.items.map { item ->
-                    <li key={item.productId}>
-                        <span>{item.name.truncate(30)}</span>
-                        <span>x{item.quantity}</span>
-                        <span>{item.price}</span>
-                    </li>
-                }}
-            </ul>
-
-            <div class="summary">
-                <p>Subtotal: {subtotal}</p>
-                {cart.discount != null && (
-                    <p class="discount">
-                        Discount: {
-                            when (cart.discount) {
-                                is Discount.Percentage   -> "${cart.discount.percent}% off"
-                                is Discount.Fixed        -> "-${cart.discount.amount}"
-                                is Discount.FreeShipping -> "Free shipping"
-                            }
-                        }
-                    </p>
-                )}
-                <p class="total"><strong>Total: {total}</strong></p>
-            </div>
-        </div>
-    )
+    return Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16), spacing = 12) {
+            Text(
+                text = "Your Cart (${cart.itemCount()} items)",
+                style = TextStyle.titleLarge,
+                color = Color.OnSurface)
+            Divider(modifier = Modifier.fillMaxWidth())
+            {cart.items.map { item ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = "spaceBetween") {
+                    Text(text = item.name.truncate(30), style = TextStyle.bodyMedium)
+                    Text(text = "x${item.quantity}",   style = TextStyle.bodyMedium, color = Color.OnSurfaceVariant)
+                    Text(text = item.price.toString(), style = TextStyle.bodyMedium)
+                }
+            }}
+            Divider(modifier = Modifier.fillMaxWidth())
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = "spaceBetween") {
+                Text(text = "Subtotal", style = TextStyle.bodyLarge)
+                Text(text = subtotal.toString(), style = TextStyle.bodyLarge)
+            }
+            {cart.discount != null && Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = "spaceBetween") {
+                Text(text = "Discount", style = TextStyle.bodyLarge, color = Color.Success)
+                Text(
+                    text = when (cart.discount) {
+                        is Discount.Percentage   -> "-${cart.discount.percent}%"
+                        is Discount.Fixed        -> "-${cart.discount.amount}"
+                        is Discount.FreeShipping -> "Free shipping"
+                    },
+                    style = TextStyle.bodyLarge,
+                    color = Color.Success)
+            }}
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = "spaceBetween") {
+                Text(text = "Total", style = TextStyle.titleMedium, color = Color.OnSurface)
+                Text(text = total.toString(), style = TextStyle.titleMedium, color = Color.Primary)
+            }
+        }
+    }
 }
 
 // ── Entry ─────────────────────────────────────────────────────────────────────

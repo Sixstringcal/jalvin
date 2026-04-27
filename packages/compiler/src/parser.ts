@@ -250,9 +250,29 @@ export class Parser {
     const savedPos = this.pos;
     const possibleReceiver = this.tryParseTypeRef();
     if (possibleReceiver && this.check(TokenKind.Dot)) {
-      // It's an extension — the receiver is what we just parsed
+      // Pattern: `fun GenericType<T>.name(...)` — receiver fully parsed, `.name` follows
       receiver = possibleReceiver;
       this.advance(); // consume '.'
+    } else if (
+      possibleReceiver?.kind === "SimpleTypeRef" &&
+      possibleReceiver.name.length >= 2 &&
+      (this.check(TokenKind.LParen) || this.check(TokenKind.Lt))
+    ) {
+      // Pattern: `fun Cart.subtotal()` — tryParseTypeRef greedily consumed "Cart.subtotal"
+      // as a qualified type name. Split: last component is function name, rest is receiver.
+      const parts = possibleReceiver.name;
+      const extReceiver: AST.SimpleTypeRef = { kind: "SimpleTypeRef", span: possibleReceiver.span, name: parts.slice(0, -1) };
+      const extName = parts[parts.length - 1]!;
+      const params = this.parseParamList();
+      let returnType: AST.TypeRef | null = null;
+      if (this.check(TokenKind.Colon)) { this.advance(); returnType = this.parseTypeRef(); }
+      let body: AST.Block | AST.Expr | null = null;
+      if (this.check(TokenKind.Eq)) { this.advance(); body = this.parseExpr(); this.eatSemicolon(); }
+      else if (this.check(TokenKind.LBrace)) { body = this.parseBlock(); }
+      else { this.eatSemicolon(); }
+      const span = AST.spanFrom(start, this.prevSpan());
+      if (!body) { body = { kind: "Block", span, statements: [] }; }
+      return { kind: "ExtensionFunDecl", span, modifiers: mods, name: extName, typeParams, receiver: extReceiver, params, returnType, body: body as AST.Block };
     } else {
       this.pos = savedPos; // backtrack
     }
@@ -414,7 +434,10 @@ export class Parser {
       name = this.advance().text;
     }
     const superTypes = this.parseSuperTypes();
-    const body = this.parseClassBody();
+    // Body is optional: `object Foo : Base()` is valid without `{ }`.
+    const body = this.check(TokenKind.LBrace)
+      ? this.parseClassBody()
+      : { span: this.prevSpan(), members: [] as AST.ClassMember[] };
     this.eatSemicolon();
     return {
       kind: "ObjectDecl",
@@ -806,7 +829,15 @@ export class Parser {
     this.expect(TokenKind.LParen);
     const params: AST.Param[] = [];
     while (!this.check(TokenKind.RParen) && !this.check(TokenKind.EOF)) {
+      // Skip ASI-inserted semicolons between params
+      while (this.check(TokenKind.Semicolon)) this.advance();
+      if (this.check(TokenKind.RParen) || this.check(TokenKind.EOF)) break;
+      const prevPos = this.pos;
       params.push(this.parseParam());
+      // Safety: if parseParam made no progress, break to avoid infinite loop
+      if (this.pos === prevPos) break;
+      // Skip trailing semicolons/ASI before the comma or close paren
+      while (this.check(TokenKind.Semicolon)) this.advance();
       if (!this.check(TokenKind.RParen)) this.expect(TokenKind.Comma);
     }
     this.expect(TokenKind.RParen);
@@ -822,7 +853,7 @@ export class Parser {
     if (this.check(TokenKind.KwVal)) { propertyKind = "val"; this.advance(); }
     else if (this.check(TokenKind.KwVar)) { propertyKind = "var"; this.advance(); }
 
-    const name = this.expectIdentifier();
+    const name = this.expectIdentOrKeyword();
     this.expect(TokenKind.Colon);
     const type = this.parseTypeRef();
 
@@ -976,6 +1007,7 @@ export class Parser {
     this.expect(TokenKind.Lt);
     const args: AST.TypeArg[] = [];
     while (!this.check(TokenKind.Gt) && !this.check(TokenKind.EOF)) {
+      const prevPos = this.pos;
       const span = this.current().span;
       if (this.check(TokenKind.Star)) {
         this.advance();
@@ -987,6 +1019,8 @@ export class Parser {
         const t = this.parseTypeRef();
         args.push({ span: AST.spanFrom(span, t.span), variance, star: false, type: t });
       }
+      // Safety: if no progress was made, break to prevent infinite loop
+      if (this.pos === prevPos) break;
       if (!this.check(TokenKind.Gt)) this.expect(TokenKind.Comma);
     }
     this.expect(TokenKind.Gt);
@@ -1558,8 +1592,15 @@ export class Parser {
         case TokenKind.LParen: {
           const args = this.parseCallArgs();
           let trailingLambda: AST.LambdaExpr | null = null;
+          // Eat ASI-inserted semicolons between ) and { so Compose-style
+          // `foo(args) \n { ... }` works (like Kotlin trailing lambdas).
+          // Restore position if no { follows so statement boundaries are preserved.
+          const savedPosAfterArgs = this.pos;
+          while (this.check(TokenKind.Semicolon)) this.advance();
           if (this.check(TokenKind.LBrace)) {
             trailingLambda = this.parseLambda();
+          } else {
+            this.pos = savedPosAfterArgs;
           }
           expr = {
             kind: "CallExpr",
@@ -1573,7 +1614,11 @@ export class Parser {
         }
         case TokenKind.Lt: {
           if (this.current().span.startOffset > 0 && this.source[this.current().span.startOffset - 1] === "\n") break loop;
-          if (this.tokens[this.pos + 1]?.kind === TokenKind.Identifier) break loop;
+          // Only attempt type-arg parsing when the next token can actually start a type
+          // argument (* or `in`). All other tokens (identifiers treated as comparisons,
+          // numeric literals, etc.) should be treated as the < comparison operator.
+          const nextKind = this.tokens[this.pos + 1]?.kind;
+          if (nextKind !== TokenKind.Star && nextKind !== TokenKind.KwIn) break loop;
           const saved = this.pos;
           try {
             const typeArgs = this.parseTypeArgs();
@@ -1716,6 +1761,10 @@ export class Parser {
         return { kind: "ContinueExpr", span: tok.span, label };
       }
       case TokenKind.LParen: {
+        // Check if this is an arrow function: (params) => body
+        if (this.looksLikeArrowFunction()) {
+          return this.parseArrowFunction();
+        }
         this.advance();
         const expr = this.parseExpr();
         this.expect(TokenKind.RParen);
@@ -1783,6 +1832,7 @@ export class Parser {
       } else if (this.check(TokenKind.LBrace)) {
         this.advance();
         const expr = this.parseExpr();
+        while (this.check(TokenKind.Semicolon)) this.advance();
         this.expect(TokenKind.RBrace);
         attrs.push({ span: AST.spanFrom(attrStart, this.prevSpan()), name: attrName, value: expr });
       }
@@ -1809,6 +1859,7 @@ export class Parser {
       if (this.check(TokenKind.LBrace)) {
         const childStart = this.advance().span;
         const expr = this.parseExpr();
+        while (this.check(TokenKind.Semicolon)) this.advance();
         this.expect(TokenKind.RBrace);
         children.push({ kind: "JsxExprChild", span: AST.spanFrom(childStart, this.prevSpan()), expr });
         continue;
@@ -1896,10 +1947,16 @@ export class Parser {
     this.expect(TokenKind.LParen);
     const condition = this.parseExpr();
     this.expect(TokenKind.RParen);
+    // Skip ASI semicolons inserted between `if (cond)` and the then-branch
+    while (this.check(TokenKind.Semicolon)) this.advance();
     const then: AST.Block | AST.Expr = this.check(TokenKind.LBrace)
       ? this.parseBlock()
       : this.parseExpr();
+    // Skip synthetic semicolons inserted by ASI between then-branch and else
+    while (this.check(TokenKind.Semicolon)) this.advance();
     this.expect(TokenKind.KwElse);
+    // Skip ASI semicolons between else and the else-branch
+    while (this.check(TokenKind.Semicolon)) this.advance();
     const elseExpr: AST.Block | AST.IfExpr | AST.Expr = this.check(TokenKind.KwIf)
       ? this.parseIfExpr()
       : this.check(TokenKind.LBrace)
@@ -1976,11 +2033,11 @@ export class Parser {
     const start = this.expect(TokenKind.LBrace).span;
     const params: AST.LambdaParam[] = [];
 
-    // Check if there are explicit params before `->`
+    // Check if there are explicit params before `->` or `=>`
     const hasParams = this.detectLambdaParams();
     if (hasParams) {
-      // Parse params
-      while (!this.check(TokenKind.Arrow) && !this.check(TokenKind.EOF)) {
+      // Parse params — stop at either -> or =>
+      while (!this.check(TokenKind.Arrow) && !this.check(TokenKind.FatArrow) && !this.check(TokenKind.EOF)) {
         const pSpan = this.current().span;
         let name: string | null = null;
         let type: AST.TypeRef | null = null;
@@ -1994,9 +2051,11 @@ export class Parser {
           }
         }
         params.push({ span: AST.spanFrom(pSpan, this.prevSpan()), name, type });
-        if (!this.check(TokenKind.Arrow)) this.expect(TokenKind.Comma);
+        if (!this.check(TokenKind.Arrow) && !this.check(TokenKind.FatArrow)) this.expect(TokenKind.Comma);
       }
-      this.expect(TokenKind.Arrow);
+      // Consume either -> or =>
+      if (this.check(TokenKind.FatArrow)) this.advance();
+      else this.expect(TokenKind.Arrow);
     }
 
     const body: AST.Stmt[] = [];
@@ -2011,7 +2070,7 @@ export class Parser {
     return { kind: "LambdaExpr", span: AST.spanFrom(start, end), params, returnType: null, body };
   }
 
-  /** Heuristically determine if this lambda has explicit parameters before `->` */
+  /** Heuristically determine if this lambda has explicit parameters before `->` or `=>` */
   private detectLambdaParams(): boolean {
     let i = this.pos;
     let depth = 0;
@@ -2021,7 +2080,7 @@ export class Parser {
       else if (k === TokenKind.RBrace || k === TokenKind.RParen) {
         if (depth === 0) return false;
         depth--;
-      } else if (k === TokenKind.Arrow && depth === 0) {
+      } else if ((k === TokenKind.Arrow || k === TokenKind.FatArrow) && depth === 0) {
         return true;
       } else if (k === TokenKind.Semicolon && depth === 0) {
         return false;
@@ -2031,13 +2090,72 @@ export class Parser {
     return false;
   }
 
+  /** Heuristic lookahead: return true if we are at `(params) =>` (arrow function). */
+  private looksLikeArrowFunction(): boolean {
+    let i = this.pos + 1; // skip the opening `(`
+    let depth = 1;
+    while (i < this.tokens.length) {
+      const k = this.tokens[i]!.kind;
+      if (k === TokenKind.LParen) depth++;
+      else if (k === TokenKind.RParen) {
+        depth--;
+        if (depth === 0) {
+          return this.tokens[i + 1]?.kind === TokenKind.FatArrow;
+        }
+      } else if (k === TokenKind.EOF) return false;
+      i++;
+    }
+    return false;
+  }
+
+  /** Parse `(params) => body` as a LambdaExpr (JS-style arrow function). */
+  private parseArrowFunction(): AST.LambdaExpr {
+    const start = this.expect(TokenKind.LParen).span;
+    const params: AST.LambdaParam[] = [];
+    while (!this.check(TokenKind.RParen) && !this.check(TokenKind.EOF)) {
+      const pSpan = this.current().span;
+      let name: string | null = null;
+      let type: AST.TypeRef | null = null;
+      if (this.check(TokenKind.Underscore)) {
+        this.advance();
+      } else {
+        name = this.expectIdentifier();
+        if (this.check(TokenKind.Colon)) {
+          this.advance();
+          type = this.parseTypeRef();
+        }
+      }
+      params.push({ span: AST.spanFrom(pSpan, this.prevSpan()), name, type });
+      if (!this.check(TokenKind.RParen)) {
+        while (this.check(TokenKind.Semicolon)) this.advance();
+        if (!this.check(TokenKind.RParen)) this.expect(TokenKind.Comma);
+      }
+    }
+    this.expect(TokenKind.RParen);
+    this.expect(TokenKind.FatArrow);
+    // Body: block `{ ... }` or single expression
+    const body: AST.Stmt[] = [];
+    if (this.check(TokenKind.LBrace)) {
+      const block = this.parseBlock();
+      return { kind: "LambdaExpr", span: AST.spanFrom(start, block.span), params, returnType: null, body: block.statements };
+    }
+    const expr = this.parseExpr();
+    body.push({ kind: "ExprStmt", span: expr.span, expr });
+    return { kind: "LambdaExpr", span: AST.spanFrom(start, expr.span), params, returnType: null, body };
+  }
+
   // ── Call arguments ─────────────────────────────────────────────────────────
 
   private parseCallArgs(): AST.CallArg[] {
     this.expect(TokenKind.LParen);
     const args: AST.CallArg[] = [];
     while (!this.check(TokenKind.RParen) && !this.check(TokenKind.EOF)) {
+      while (this.check(TokenKind.Semicolon)) this.advance();
+      if (this.check(TokenKind.RParen) || this.check(TokenKind.EOF)) break;
+      const prevPos = this.pos;
       args.push(this.parseCallArg());
+      if (this.pos === prevPos) break;
+      while (this.check(TokenKind.Semicolon)) this.advance();
       if (!this.check(TokenKind.RParen)) this.expect(TokenKind.Comma);
     }
     this.expect(TokenKind.RParen);

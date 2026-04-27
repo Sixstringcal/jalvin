@@ -39,6 +39,13 @@ describe("Integration — example programs compile without errors", () => {
     expect(errs).toHaveLength(0);
     expect(result.code.length).toBeGreaterThan(0);
   });
+
+  it("05-ui-showcase/UIShowcase.jalvin compiles", () => {
+    const result = compileExample(path.join(EXAMPLES_DIR, "05-ui-showcase/UIShowcase.jalvin"));
+    const errs = result.diagnostics.items.filter((d) => d.severity === "error");
+    expect(errs).toHaveLength(0);
+    expect(result.code.length).toBeGreaterThan(0);
+  });
 });
 
 describe("Integration — Counter example output structure", () => {
@@ -69,6 +76,25 @@ describe("Integration — Cart example output structure", () => {
     // Extension functions compile to module-level functions
     expect(result.code).toContain("subtotal");
     expect(result.code).toContain("totalAfterDiscount");
+  });
+});
+
+describe("Integration — UIShowcase output structure", () => {
+  it("emits a UIShowcase component function", () => {
+    const result = compileExample(path.join(EXAMPLES_DIR, "05-ui-showcase/UIShowcase.jalvin"));
+    expect(result.code).toContain("function UIShowcase");
+  });
+
+  it("marks the output as JSX", () => {
+    const result = compileExample(path.join(EXAMPLES_DIR, "05-ui-showcase/UIShowcase.jalvin"));
+    expect(result.isJsx).toBe(true);
+  });
+
+  it("emits section sub-components", () => {
+    const result = compileExample(path.join(EXAMPLES_DIR, "05-ui-showcase/UIShowcase.jalvin"));
+    expect(result.code).toContain("function TextShowcase");
+    expect(result.code).toContain("function ButtonShowcase");
+    expect(result.code).toContain("function InputShowcase");
   });
 });
 

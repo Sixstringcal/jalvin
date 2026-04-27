@@ -2,13 +2,12 @@
   "name": "@jalvin/ui",
   "version": "1.0.0",
   "description": "Jalvin UI — Compose-style component library (Column, Row, Box, Button, Text, …)",
+  "type": "module",
   "main": "dist/index.js",
-  "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "types": "./dist/index.d.ts"
     }
   },

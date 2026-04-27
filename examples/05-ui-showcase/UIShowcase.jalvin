@@ -1,0 +1,484 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Example 05: @jalvin/ui Component Showcase
+// ─────────────────────────────────────────────────────────────────────────────
+
+import @jalvin/runtime.*
+import @jalvin/ui.Column
+import @jalvin/ui.Row
+import @jalvin/ui.Box
+import @jalvin/ui.Text
+import @jalvin/ui.Button
+import @jalvin/ui.IconButton
+import @jalvin/ui.Spacer
+import @jalvin/ui.Divider
+import @jalvin/ui.Input
+import @jalvin/ui.Card
+import @jalvin/ui.Scaffold
+import @jalvin/ui.TopBar
+import @jalvin/ui.Image
+import @jalvin/ui.AsyncImage
+import @jalvin/ui.Modifier
+import @jalvin/ui.Color
+import @jalvin/ui.TextStyle
+
+component fun SectionHeader(title: String) {
+    return Column(modifier = Modifier.fillMaxWidth().paddingVertical(8)) {
+        Text(text = title, style = TextStyle.titleLarge, color = Color.OnSurface)
+        Divider(modifier = Modifier.fillMaxWidth().paddingVertical(4))
+    }
+}
+
+component fun TextShowcase() {
+    return Column(modifier = Modifier.fillMaxWidth(), spacing = 8) {
+        SectionHeader(title = "Text")
+        Text(text = "Display Large",  style = TextStyle.displayLarge)
+        Text(text = "Display Medium", style = TextStyle.displayMedium)
+        Text(text = "Display Small",  style = TextStyle.displaySmall)
+        Text(text = "Headline Large",  style = TextStyle.headlineLarge)
+        Text(text = "Headline Medium", style = TextStyle.headlineMedium)
+        Text(text = "Headline Small",  style = TextStyle.headlineSmall)
+        Text(text = "Title Large",   style = TextStyle.titleLarge)
+        Text(text = "Title Medium",  style = TextStyle.titleMedium)
+        Text(text = "Title Small",   style = TextStyle.titleSmall)
+        Text(text = "Body Large",    style = TextStyle.bodyLarge)
+        Text(text = "Body Medium",   style = TextStyle.bodyMedium)
+        Text(text = "Body Small",    style = TextStyle.bodySmall)
+        Text(text = "Label Large",   style = TextStyle.labelLarge)
+        Text(text = "Label Medium",  style = TextStyle.labelMedium)
+        Text(text = "Label Small",   style = TextStyle.labelSmall)
+        Row(spacing = 8) {
+            Text(text = "Red text",   color = Color.Error)
+            Text(text = "Blue text",  color = Color.Primary)
+            Text(text = "Green text", color = Color.Success)
+        }
+        Text(
+            text = "This is a long line that will be clamped to a single line using maxLines=1.",
+            maxLines = 1)
+        Text(text = "code snippet", style = TextStyle.code)
+    }
+}
+
+component fun ButtonShowcase() {
+    val count = mutableStateOf(0)
+
+    return Column(modifier = Modifier.fillMaxWidth(), spacing = 12) {
+        SectionHeader(title = "Button")
+
+        Text(text = "Variants", style = TextStyle.labelLarge, color = Color.OnSurfaceVariant)
+        Row(spacing = 8, wrap = true) {
+            Button(text = "Filled",   variant = "filled")
+            Button(text = "Outlined", variant = "outlined")
+            Button(text = "Text",     variant = "text")
+            Button(text = "Tonal",    variant = "tonal")
+        }
+
+        Text(text = "Disabled", style = TextStyle.labelLarge, color = Color.OnSurfaceVariant)
+        Row(spacing = 8, wrap = true) {
+            Button(text = "Filled",   variant = "filled",   enabled = false)
+            Button(text = "Outlined", variant = "outlined", enabled = false)
+            Button(text = "Text",     variant = "text",     enabled = false)
+        }
+
+        Text(text = "With icons", style = TextStyle.labelLarge, color = Color.OnSurfaceVariant)
+        Row(spacing = 8, wrap = true) {
+            Button(
+                text = "Leading icon",
+                leadingIcon = Text(text = "+", style = TextStyle.titleMedium))
+            Button(
+                text = "Trailing icon",
+                trailingIcon = Text(text = "->", style = TextStyle.titleMedium))
+        }
+
+        Text(text = "Click counter", style = TextStyle.labelLarge, color = Color.OnSurfaceVariant)
+        Row(spacing = 8, verticalAlignment = "center") {
+            Button(
+                text = "Increment",
+                onClick = { count.value = count.value + 1 })
+            Text(text = "Clicked: ${count.value}", style = TextStyle.bodyLarge)
+        }
+    }
+}
+
+component fun IconButtonShowcase() {
+    return Column(modifier = Modifier.fillMaxWidth(), spacing = 8) {
+        SectionHeader(title = "IconButton")
+        Row(spacing = 12, verticalAlignment = "center") {
+            IconButton(onClick = { }) {
+                Text(text = "+", style = TextStyle.titleLarge)
+            }
+            IconButton(onClick = { }) {
+                Text(text = "x", style = TextStyle.titleMedium, color = Color.Error)
+            }
+            IconButton(enabled = false) {
+                Text(text = "!", style = TextStyle.titleMedium)
+            }
+            Text(text = "(last one is disabled)", style = TextStyle.bodySmall, color = Color.OnSurfaceVariant)
+        }
+    }
+}
+
+component fun ColorBox(label: String, bg: String) {
+    return Box(
+        modifier = Modifier.size(60).background(bg).borderRadius(8),
+        contentAlignment = "center") {
+        Text(text = label, style = TextStyle.labelSmall, color = Color.White)
+    }
+}
+
+component fun LayoutShowcase() {
+    return Column(modifier = Modifier.fillMaxWidth(), spacing = 16) {
+        SectionHeader(title = "Column / Row / Box")
+
+        Text(text = "Column (spacing=8)", style = TextStyle.labelLarge, color = Color.OnSurfaceVariant)
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(8).background(Color.Surface).borderRadius(8),
+            spacing = 8) {
+            ColorBox(label = "A", bg = Color.Primary)
+            ColorBox(label = "B", bg = Color.Secondary)
+            ColorBox(label = "C", bg = Color.Success)
+        }
+
+        Text(text = "Row (spacing=8, spaceBetween)", style = TextStyle.labelLarge, color = Color.OnSurfaceVariant)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(8).background(Color.Surface).borderRadius(8),
+            spacing = 8,
+            horizontalArrangement = "spaceBetween") {
+            ColorBox(label = "1", bg = Color.Primary)
+            ColorBox(label = "2", bg = Color.Secondary)
+            ColorBox(label = "3", bg = Color.Success)
+            ColorBox(label = "4", bg = Color.Warning)
+            ColorBox(label = "5", bg = Color.Error)
+        }
+
+        Text(text = "Row wrapping", style = TextStyle.labelLarge, color = Color.OnSurfaceVariant)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(8).background(Color.Surface).borderRadius(8),
+            spacing = 8,
+            wrap = true) {
+            ColorBox(label = "W1", bg = Color.Primary)
+            ColorBox(label = "W2", bg = Color.PrimaryDark)
+            ColorBox(label = "W3", bg = Color.Secondary)
+            ColorBox(label = "W4", bg = Color.SecondaryLight)
+            ColorBox(label = "W5", bg = Color.Success)
+            ColorBox(label = "W6", bg = Color.SuccessLight)
+        }
+
+        Text(text = "Box — contentAlignment options", style = TextStyle.labelLarge, color = Color.OnSurfaceVariant)
+        Row(spacing = 8, wrap = true) {
+            Box(
+                modifier = Modifier.size(80).background(Color.SurfaceVariant).borderRadius(8),
+                contentAlignment = "topStart") {
+                Text(text = "topStart", style = TextStyle.labelSmall)
+            }
+            Box(
+                modifier = Modifier.size(80).background(Color.SurfaceVariant).borderRadius(8),
+                contentAlignment = "center") {
+                Text(text = "center", style = TextStyle.labelSmall)
+            }
+            Box(
+                modifier = Modifier.size(80).background(Color.SurfaceVariant).borderRadius(8),
+                contentAlignment = "bottomEnd") {
+                Text(text = "botEnd", style = TextStyle.labelSmall)
+            }
+        }
+    }
+}
+
+component fun SpacerDividerShowcase() {
+    return Column(modifier = Modifier.fillMaxWidth(), spacing = 8) {
+        SectionHeader(title = "Spacer & Divider")
+
+        Text(text = "Horizontal Divider (default)", style = TextStyle.labelLarge, color = Color.OnSurfaceVariant)
+        Divider(modifier = Modifier.fillMaxWidth())
+
+        Text(text = "Horizontal Divider (thick, colored)", style = TextStyle.labelLarge, color = Color.OnSurfaceVariant)
+        Divider(modifier = Modifier.fillMaxWidth(), color = Color.Primary, thickness = 3)
+
+        Text(text = "Vertical Divider inside a Row", style = TextStyle.labelLarge, color = Color.OnSurfaceVariant)
+        Row(
+            modifier = Modifier.fillMaxWidth().height(48).padding(8).background(Color.Surface).borderRadius(8),
+            spacing = 8,
+            verticalAlignment = "center") {
+            Text(text = "Left")
+            Divider(orientation = "vertical", modifier = Modifier.height(32), color = Color.Outline)
+            Text(text = "Right")
+        }
+
+        Text(text = "Spacer (weight=1) pushing items apart", style = TextStyle.labelLarge, color = Color.OnSurfaceVariant)
+        Row(modifier = Modifier.fillMaxWidth().padding(8).background(Color.Surface).borderRadius(8)) {
+            Text(text = "Start", style = TextStyle.bodyMedium)
+            Spacer(weight = 1)
+            Text(text = "End", style = TextStyle.bodyMedium)
+        }
+
+        Text(text = "Fixed Spacers — 8 / 16 / 32 px", style = TextStyle.labelLarge, color = Color.OnSurfaceVariant)
+        Row(
+            modifier = Modifier.padding(8).background(Color.Surface).borderRadius(8),
+            verticalAlignment = "center") {
+            ColorBox(label = "A", bg = Color.Primary)
+            Spacer(width = 8)
+            ColorBox(label = "B", bg = Color.Secondary)
+            Spacer(width = 16)
+            ColorBox(label = "C", bg = Color.Success)
+            Spacer(width = 32)
+            ColorBox(label = "D", bg = Color.Warning)
+        }
+    }
+}
+
+component fun InputShowcase() {
+    val text     = mutableStateOf("")
+    val email    = mutableStateOf("")
+    val password = mutableStateOf("")
+    val search   = mutableStateOf("")
+
+    return Column(modifier = Modifier.fillMaxWidth(), spacing = 12) {
+        SectionHeader(title = "Input")
+
+        Input(
+            value = text.value,
+            onValueChange = (v: String) => { text.value = v },
+            label = "Full name",
+            placeholder = "e.g. Ada Lovelace",
+            supportingText = "Used for your display name")
+
+        Input(
+            value = email.value,
+            onValueChange = (v: String) => { email.value = v },
+            label = "Email address",
+            placeholder = "you@example.com",
+            type = "email")
+
+        Input(
+            value = password.value,
+            onValueChange = (v: String) => { password.value = v },
+            label = "Password",
+            placeholder = "Min 8 characters",
+            type = "password",
+            isError = password.value.length > 0 && password.value.length < 8,
+            supportingText = if (password.value.length > 0 && password.value.length < 8)
+                "Password too short"
+            else
+                "Must be at least 8 characters")
+
+        Input(
+            value = search.value,
+            onValueChange = (v: String) => { search.value = v },
+            placeholder = "Search...",
+            type = "search")
+
+        Input(
+            value = "Read-only value",
+            label = "Read only",
+            readOnly = true)
+
+        Input(
+            label = "Disabled",
+            placeholder = "Cannot type here",
+            enabled = false)
+    }
+}
+
+component fun CardShowcase() {
+    val lastClicked = mutableStateOf("")
+
+    return Column(modifier = Modifier.fillMaxWidth(), spacing = 12) {
+        SectionHeader(title = "Card")
+
+        Row(spacing = 12, wrap = true) {
+            Card(elevation = 0, modifier = Modifier.width(180)) {
+                Text(text = "elevation=0 (flat)", style = TextStyle.bodyMedium)
+            }
+            Card(elevation = 1, modifier = Modifier.width(180)) {
+                Text(text = "elevation=1 (default)", style = TextStyle.bodyMedium)
+            }
+            Card(elevation = 2, modifier = Modifier.width(180)) {
+                Text(text = "elevation=2", style = TextStyle.bodyMedium)
+            }
+            Card(elevation = 3, modifier = Modifier.width(180)) {
+                Text(text = "elevation=3 (deep)", style = TextStyle.bodyMedium)
+            }
+        }
+
+        Row(spacing = 12, wrap = true) {
+            Card(outlined = true, modifier = Modifier.width(180)) {
+                Text(text = "Outlined card", style = TextStyle.bodyMedium)
+            }
+            Card(
+                outlined = true,
+                modifier = Modifier.width(180),
+                onClick = { lastClicked.value = "Card clicked!" }) {
+                Column(spacing = 4) {
+                    Text(text = "Clickable card", style = TextStyle.titleSmall)
+                    Text(text = "Tap me", style = TextStyle.bodySmall, color = Color.OnSurfaceVariant)
+                }
+            }
+        }
+
+        Text(
+            text = "Last action: ${lastClicked.value}",
+            style = TextStyle.bodyMedium,
+            color = Color.Primary)
+    }
+}
+
+component fun ImageShowcase() {
+    return Column(modifier = Modifier.fillMaxWidth(), spacing = 12) {
+        SectionHeader(title = "Image & AsyncImage")
+
+        Text(text = "contentScale variants", style = TextStyle.labelLarge, color = Color.OnSurfaceVariant)
+        Row(spacing = 12, wrap = true) {
+            Column(spacing = 4, horizontalAlignment = "center") {
+                Image(
+                    src = "https://picsum.photos/seed/jalvin1/200/120",
+                    alt = "fit example",
+                    contentScale = "fit",
+                    modifier = Modifier.width(120).height(80).background(Color.Surface).borderRadius(6))
+                Text(text = "fit", style = TextStyle.labelSmall, color = Color.OnSurfaceVariant)
+            }
+            Column(spacing = 4, horizontalAlignment = "center") {
+                Image(
+                    src = "https://picsum.photos/seed/jalvin2/200/120",
+                    alt = "crop example",
+                    contentScale = "crop",
+                    modifier = Modifier.width(120).height(80).background(Color.Surface).borderRadius(6))
+                Text(text = "crop", style = TextStyle.labelSmall, color = Color.OnSurfaceVariant)
+            }
+            Column(spacing = 4, horizontalAlignment = "center") {
+                Image(
+                    src = "https://picsum.photos/seed/jalvin3/200/120",
+                    alt = "fill example",
+                    contentScale = "fill",
+                    modifier = Modifier.width(120).height(80).background(Color.Surface).borderRadius(6))
+                Text(text = "fill", style = TextStyle.labelSmall, color = Color.OnSurfaceVariant)
+            }
+        }
+
+        Text(text = "AsyncImage with loading placeholder", style = TextStyle.labelLarge, color = Color.OnSurfaceVariant)
+        AsyncImage(
+            src = "https://picsum.photos/seed/jalvin4/300/180",
+            alt = "async example",
+            contentScale = "crop",
+            modifier = Modifier.width(300).height(180).borderRadius(8),
+            loadingPlaceholder = Box(
+                modifier = Modifier.width(300).height(180).background(Color.SurfaceVariant).borderRadius(8),
+                contentAlignment = "center") {
+                Text(text = "Loading image...", style = TextStyle.bodyMedium, color = Color.OnSurfaceVariant)
+            },
+            errorPlaceholder = Box(
+                modifier = Modifier.width(300).height(180).background(Color.SurfaceVariant).borderRadius(8),
+                contentAlignment = "center") {
+                Text(text = "Failed to load", style = TextStyle.bodyMedium, color = Color.Error)
+            })
+    }
+}
+
+component fun ScaffoldShowcase() {
+    val drawerOpen = mutableStateOf(false)
+
+    return Column(modifier = Modifier.fillMaxWidth(), spacing = 8) {
+        SectionHeader(title = "TopBar")
+        Card(elevation = 1, modifier = Modifier.fillMaxWidth()) {
+            TopBar(
+                title = "My Application",
+                navigationIcon = IconButton(onClick = { drawerOpen.value = !drawerOpen.value }) {
+                    Text(text = "=", style = TextStyle.titleMedium)
+                },
+                actions = Row(spacing = 4) {
+                    IconButton(onClick = { }) {
+                        Text(text = "?", style = TextStyle.titleSmall)
+                    }
+                    IconButton(onClick = { }) {
+                        Text(text = "...", style = TextStyle.titleSmall)
+                    }
+                })
+        }
+        Text(
+            text = if (drawerOpen.value) "Nav drawer: OPEN" else "Nav drawer: CLOSED",
+            style = TextStyle.bodySmall,
+            color = Color.OnSurfaceVariant)
+
+        SectionHeader(title = "Scaffold (mini preview)")
+        Card(elevation = 1, modifier = Modifier.fillMaxWidth().height(260)) {
+            Scaffold(
+                modifier = Modifier.fillMaxSize(),
+                topBar = TopBar(
+                    title = "Scaffold Preview",
+                    navigationIcon = IconButton(onClick = { }) {
+                        Text(text = "<", style = TextStyle.titleMedium)
+                    }),
+                bottomBar = Row(
+                    modifier = Modifier.fillMaxWidth().padding(12).background(Color.Surface),
+                    horizontalArrangement = "spaceEvenly") {
+                    Button(text = "Home",    variant = "text")
+                    Button(text = "Search",  variant = "text")
+                    Button(text = "Profile", variant = "text")
+                },
+                floatingActionButton = Button(text = "+", variant = "filled", modifier = Modifier.size(48))) {
+                Column(modifier = Modifier.fillMaxWidth().padding(16), spacing = 8) {
+                    Text(text = "Main content area", style = TextStyle.bodyLarge)
+                    Text(text = "Scroll to reveal more.", style = TextStyle.bodyMedium, color = Color.OnSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+component fun ColorSwatch(name: String, value: String) {
+    return Column(spacing = 4, horizontalAlignment = "center") {
+        Box(modifier = Modifier.size(48).background(value).borderRadius(8))
+        Text(text = name, style = TextStyle.labelSmall, color = Color.OnSurfaceVariant)
+    }
+}
+
+component fun ColorShowcase() {
+    return Column(modifier = Modifier.fillMaxWidth(), spacing = 8) {
+        SectionHeader(title = "Color Palette")
+        Row(spacing = 12, wrap = true) {
+            ColorSwatch(name = "Primary",        value = Color.Primary)
+            ColorSwatch(name = "PrimaryLight",   value = Color.PrimaryLight)
+            ColorSwatch(name = "PrimaryDark",    value = Color.PrimaryDark)
+            ColorSwatch(name = "Secondary",      value = Color.Secondary)
+            ColorSwatch(name = "SecondaryLight", value = Color.SecondaryLight)
+            ColorSwatch(name = "Surface",        value = Color.Surface)
+            ColorSwatch(name = "SurfaceVar",     value = Color.SurfaceVariant)
+            ColorSwatch(name = "Outline",        value = Color.Outline)
+            ColorSwatch(name = "OnSurface",      value = Color.OnSurface)
+            ColorSwatch(name = "Error",          value = Color.Error)
+            ColorSwatch(name = "ErrorLight",     value = Color.ErrorLight)
+            ColorSwatch(name = "Success",        value = Color.Success)
+            ColorSwatch(name = "SuccessLight",   value = Color.SuccessLight)
+            ColorSwatch(name = "Warning",        value = Color.Warning)
+            ColorSwatch(name = "WarningLight",   value = Color.WarningLight)
+        }
+    }
+}
+
+component fun UIShowcase() {
+    return Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        topBar = TopBar(
+            title = "@jalvin/ui Showcase",
+            navigationIcon = Box(
+                modifier = Modifier.size(32).background(Color.Primary).borderRadius(6),
+                contentAlignment = "center") {
+                Text(text = "J", style = TextStyle.titleSmall, color = Color.OnPrimary)
+            })) {
+        Column(modifier = Modifier.fillMaxWidth().padding(24), spacing = 32) {
+            TextShowcase()
+            ButtonShowcase()
+            IconButtonShowcase()
+            LayoutShowcase()
+            SpacerDividerShowcase()
+            InputShowcase()
+            CardShowcase()
+            ImageShowcase()
+            ScaffoldShowcase()
+            ColorShowcase()
+        }
+    }
+}
+
+fun main() {
+    println("@jalvin/ui showcase")
+}

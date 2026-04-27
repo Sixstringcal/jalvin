@@ -3,6 +3,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import @jalvin/runtime.*
+import @jalvin/ui.Column
+import @jalvin/ui.Row
+import @jalvin/ui.Text
+import @jalvin/ui.Button
+import @jalvin/ui.Modifier
+import @jalvin/ui.TextStyle
+import @jalvin/ui.Color
 
 // A simple counter view model
 class CounterViewModel : ViewModel() {
@@ -26,16 +33,20 @@ component fun Counter() {
     val vm = useViewModel("counter") { CounterViewModel() }
     val count = collectAsState(vm.count)
 
-    return (
-        <div class="counter">
-            <h1>Count: {count}</h1>
-            <div class="buttons">
-                <button onClick={() => vm.decrement()}>-</button>
-                <button onClick={() => vm.reset()}>Reset</button>
-                <button onClick={() => vm.increment()}>+</button>
-            </div>
-        </div>
-    )
+    return Column(
+        modifier = Modifier.fillMaxWidth().padding(32),
+        spacing = 24,
+        horizontalAlignment = "center") {
+        Text(
+            text = "Count: ${count}",
+            style = TextStyle.displaySmall,
+            color = Color.OnSurface)
+        Row(spacing = 12) {
+            Button(text = "-",     variant = "outlined", onClick = { vm.decrement() })
+            Button(text = "Reset", variant = "text",     onClick = { vm.reset() })
+            Button(text = "+",     variant = "filled",   onClick = { vm.increment() })
+        }
+    }
 }
 
 // Entry point — render the counter

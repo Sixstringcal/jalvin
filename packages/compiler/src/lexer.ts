@@ -372,7 +372,7 @@ export class Lexer {
       return { kind: TokenKind.Underscore, span, text };
     }
 
-    const kwKind = KEYWORDS[text];
+    const kwKind = Object.prototype.hasOwnProperty.call(KEYWORDS, text) ? KEYWORDS[text] : undefined;
     if (kwKind !== undefined) {
       switch (kwKind) {
         case TokenKind.BooleanLiteral:

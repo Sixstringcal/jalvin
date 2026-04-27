@@ -281,6 +281,8 @@ export class TypeChecker {
   private inSuspend = false;
   /** Whether we're inside a component */
   private inComponent = false;
+  /** Whether the program has a wildcard import from a @jalvin/* package */
+  private hasWildcardJalvinImport = false;
   /** Map from node to resolved type (for IDE use) */
   readonly typeMap = new Map<object, JType>();
   /**
@@ -306,6 +308,20 @@ export class TypeChecker {
   }
 
   checkProgram(program: AST.Program): void {
+    // Zero pass: register imported symbols into scope so the type-checker
+    // doesn't emit "Unresolved reference" errors for external @jalvin/* packages.
+    for (const imp of program.imports) {
+      const isJalvinPkg = imp.path.length > 0 && imp.path[0]?.startsWith("@jalvin");
+      if (imp.star) {
+        if (isJalvinPkg) this.hasWildcardJalvinImport = true;
+      } else {
+        // Named import — register the last path component (or alias) as T_UNKNOWN
+        const symbolName = imp.alias ?? imp.path[imp.path.length - 1];
+        if (symbolName && symbolName !== "@jalvin") {
+          this.scope.define({ name: symbolName, type: T_UNKNOWN, mutable: false, span: imp.span });
+        }
+      }
+    }
     // First pass: hoist all top-level declarations into global scope
     for (const decl of program.declarations) {
       this.hoistDecl(decl);
@@ -1040,6 +1056,10 @@ export class TypeChecker {
           if (expr.name === "Double" || expr.name === "Float") return classType("NumberCompanion");
           // JS builtins — allow through without error (emits as-is to TypeScript)
           if (JS_GLOBALS.has(expr.name)) return T_UNKNOWN;
+          // Suppress unresolved-reference errors for names that come from a
+          // wildcard @jalvin/* import (runtime, ui, etc.) — the type-checker
+          // doesn't have the full symbol table for those packages.
+          if (this.hasWildcardJalvinImport) return T_UNKNOWN;
           this.diag.error(expr.span, E_UNDEFINED_SYMBOL, `Unresolved reference: '${expr.name}'`);
           return T_ERROR;
         }

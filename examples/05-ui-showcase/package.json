@@ -1,0 +1,24 @@
+{
+  "name": "@jalvin/example-ui-showcase",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@jalvin/runtime": "workspace:*",
+    "@jalvin/ui": "workspace:*",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  },
+  "devDependencies": {
+    "@jalvin/vite-plugin": "workspace:*",
+    "@vitejs/plugin-react": "^4.0.0",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "typescript": "^5.4.0",
+    "vite": "^5.0.0"
+  }
+}

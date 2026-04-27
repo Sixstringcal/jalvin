@@ -94,6 +94,8 @@ export class CodeGenerator {
   private readonly opts: CodegenOptions;
   private hasComponents = false;
   private runtimeSymbolsNeeded = new Set<string>();
+  /** Names of component functions — used to detect Compose-style calls and emit them as JSX */
+  private componentNames = new Set<string>();
   /** Operator overload resolutions from the type checker */
   private operatorOverloadMap = new Map<AST.BinaryExpr, string>();
   /** Type map from the type checker */
@@ -116,11 +118,28 @@ export class CodeGenerator {
   ): CodegenResult {
     if (operatorOverloads) this.operatorOverloadMap = operatorOverloads;
     if (typeMap) this.typeMap = typeMap;
-    // Pre-scan for components
+    // Pre-scan for components (local declarations OR @jalvin/ui imports)
     this.hasComponents = program.declarations.some(
       (d) => d.kind === "ComponentDecl" ||
         (d.kind === "ClassDecl" && d.body?.members.some((m) => m.kind === "ComponentDecl"))
-    );
+    ) || program.imports.some((imp) => imp.path[0] === "@jalvin" && imp.path[1] === "ui");
+
+    // Collect component names for Compose-style call detection
+    this.componentNames = new Set<string>();
+    for (const decl of program.declarations) {
+      if (decl.kind === "ComponentDecl") this.componentNames.add(decl.name);
+      if (decl.kind === "ClassDecl" && decl.body) {
+        for (const m of decl.body.members) {
+          if (m.kind === "ComponentDecl") this.componentNames.add(m.name);
+        }
+      }
+    }
+    for (const imp of program.imports) {
+      // Named imports from @jalvin/ui are component functions
+      if (imp.path[0] === "@jalvin" && imp.path[1] === "ui" && !imp.star) {
+        this.componentNames.add(imp.path[imp.path.length - 1]!);
+      }
+    }
 
     // Emit header
     this.emitHeader(program);
@@ -162,18 +181,22 @@ export class CodeGenerator {
   private emitHeader(program: AST.Program): void {
     // Re-emit user imports as ES imports
     for (const imp of program.imports) {
-      // Correctly handle scoped packages: if path starts with @, preserve it
-      const path = imp.path[0]!.startsWith("@")
-        ? imp.path[0] + "/" + imp.path.slice(1).join("/")
-        : imp.path.join("/");
+      // Build module specifier: for named imports the last path component is the
+      // exported symbol name (not a subpath), so exclude it from the module path.
+      // e.g. import @jalvin/ui.Column → `import { Column } from "@jalvin/ui"`
+      // e.g. import @jalvin/runtime.* → `import * as runtime from "@jalvin/runtime"`
+      const moduleParts = imp.star ? imp.path : imp.path.slice(0, -1);
+      const moduleSpecifier = moduleParts[0]!.startsWith("@")
+        ? moduleParts[0] + "/" + moduleParts.slice(1).join("/")
+        : moduleParts.join("/");
 
       if (imp.star) {
-        this.w.writeIndentedLine(`import * as ${imp.path[imp.path.length - 1]!} from "${path}";`);
+        this.w.writeIndentedLine(`import * as ${imp.path[imp.path.length - 1]!} from "${moduleSpecifier}";`);
       } else if (imp.alias) {
         const named = imp.path[imp.path.length - 1]!;
-        this.w.writeIndentedLine(`import { ${named} as ${imp.alias} } from "${path}";`);
+        this.w.writeIndentedLine(`import { ${named} as ${imp.alias} } from "${moduleSpecifier}";`);
       } else {
-        this.w.writeIndentedLine(`import { ${imp.path[imp.path.length - 1]!} } from "${path}";`);
+        this.w.writeIndentedLine(`import { ${imp.path[imp.path.length - 1]!} } from "${moduleSpecifier}";`);
       }
     }
     if (program.imports.length > 0) this.w.writeLine();
@@ -710,9 +733,9 @@ export class CodeGenerator {
 
   // ── property declaration ───────────────────────────────────────────────────
 
-  private emitPropertyDecl(decl: AST.PropertyDecl, member: boolean): void {
+  private emitPropertyDecl(decl: AST.PropertyDecl, member: boolean, isLocal = false): void {
     this.emitAnnotations(decl.modifiers);
-    const vis = member ? this.visibilityPrefix(decl.modifiers) : this.exportPrefix(decl.modifiers);
+    const vis = member ? this.visibilityPrefix(decl.modifiers) : isLocal ? "" : this.exportPrefix(decl.modifiers);
     const isConst = decl.modifiers.modifiers.includes("const");
     const isLateinit = decl.modifiers.modifiers.includes("lateinit");
     // `const val` → `const` at module level; inside classes treated as `static readonly`
@@ -895,7 +918,7 @@ export class CodeGenerator {
         this.w.writeIndentedLine(`}`);
         break;
       case "PropertyDecl":
-        this.emitPropertyDecl(stmt, false);
+        this.emitPropertyDecl(stmt, false, true);
         break;
       case "DestructuringDecl":
         this.emitDestructuringDecl(stmt, false);
@@ -1363,6 +1386,12 @@ export class CodeGenerator {
       return `(${this.emitLambdaExpr(expr.trailingLambda)})()`;
     }
 
+    // Compose-style component call: Column(modifier = ...) { ... } → <Column ...>...</Column>
+    if (expr.callee.kind === "NameExpr" && this.componentNames.has(expr.callee.name)) {
+      const calleeType = this.typeMap.get(expr.callee);
+      return this.emitComposeCallAsJsx(expr, calleeType);
+    }
+
     // Handle named arguments by reordering them to match positional parameters
     const calleeType = this.typeMap.get(expr.callee);
     let finalArgs: string[] = [];
@@ -1437,6 +1466,43 @@ export class CodeGenerator {
       return /^[A-Z]/.test(calleeExpr.member);
     }
     return false;
+  }
+
+  // ── Compose-style component call → JSX ────────────────────────────────────
+
+  /** Emit `Column(modifier = ...) { ... }` as `<Column modifier={...}>...</Column>` */
+  private emitComposeCallAsJsx(expr: AST.CallExpr, calleeType: JType | undefined): string {
+    const tag = (expr.callee as AST.NameExpr).name;
+    const paramNames = calleeType?.tag === "func" ? calleeType.paramNames : undefined;
+
+    // Build JSX props from named/positional args
+    const props: string[] = [];
+    for (let i = 0; i < expr.args.length; i++) {
+      const arg = expr.args[i]!;
+      const propName = arg.name ?? paramNames?.[i];
+      if (!propName) continue; // positional arg with unknown name — skip
+      const val = this.emitExpr(arg.value);
+      props.push(`${propName}={${val}}`);
+    }
+
+    const propsStr = props.length > 0 ? " " + props.join(" ") : "";
+
+    if (expr.trailingLambda) {
+      const children = this.emitLambdaBodyAsJsxChildren(expr.trailingLambda);
+      return `<${tag}${propsStr}>${children}</${tag}>`;
+    }
+    return `<${tag}${propsStr} />`;
+  }
+
+  /** Emit each statement in a trailing-lambda body as a JSX child. */
+  private emitLambdaBodyAsJsxChildren(lambda: AST.LambdaExpr): string {
+    return lambda.body.map((stmt) => {
+      if (stmt.kind !== "ExprStmt") return ""; // val/var decls can't be JSX children
+      const s = this.emitExpr((stmt as AST.ExprStmt).expr);
+      // Component calls return JSX strings (start with <) — embed directly.
+      // Everything else gets wrapped in {}.
+      return s.trimStart().startsWith("<") ? s : `{${s}}`;
+    }).join("");
   }
 
   private emitLambdaExpr(expr: AST.LambdaExpr): string {

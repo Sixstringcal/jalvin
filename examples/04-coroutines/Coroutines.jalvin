@@ -3,6 +3,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import @jalvin/runtime.*
+import @jalvin/ui.Column
+import @jalvin/ui.Row
+import @jalvin/ui.Text
+import @jalvin/ui.Button
+import @jalvin/ui.Modifier
+import @jalvin/ui.TextStyle
+import @jalvin/ui.Color
 
 // Simulated slow operations
 suspend fun fetchFromDatabase(id: String): String {
@@ -41,7 +48,7 @@ class DownloadViewModel : ViewModel() {
 
         for (chunk in 1..10) {
             delay(100)
-            progress.update { chunk * 10 }
+            progress.value = chunk * 10
             status.value = "Downloaded ${chunk * 10}%"
         }
 
@@ -64,13 +71,20 @@ component fun DownloadBar(url: String) {
         vm.startDownload(url)
     }
 
-    return (
-        <div class="download">
-            <p>{status}</p>
-            <progress value={progress} max={100} />
-            <button onClick={() => vm.cancelDownload()}>Cancel</button>
-        </div>
-    )
+    return Column(
+        modifier = Modifier.fillMaxWidth().padding(16),
+        spacing = 12) {
+        Text(text = status, style = TextStyle.bodyLarge, color = Color.OnSurface)
+        Text(
+            text = "${progress}%",
+            style = TextStyle.titleMedium,
+            color = if (progress >= 100) Color.Success else Color.Primary)
+        Button(
+            text = "Cancel",
+            variant = "outlined",
+            enabled = status != "Complete" && status != "Cancelled",
+            onClick = { vm.cancelDownload() })
+    }
 }
 
 // Top-level coroutine example (Node.js / CLI usage)

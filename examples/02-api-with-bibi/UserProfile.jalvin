@@ -4,6 +4,16 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import @jalvin/runtime.*
+import @jalvin/ui.Column
+import @jalvin/ui.Row
+import @jalvin/ui.Box
+import @jalvin/ui.Text
+import @jalvin/ui.Card
+import @jalvin/ui.AsyncImage
+import @jalvin/ui.Scaffold
+import @jalvin/ui.Modifier
+import @jalvin/ui.TextStyle
+import @jalvin/ui.Color
 
 // ── Data models ──────────────────────────────────────────────────────────────
 
@@ -42,7 +52,7 @@ class UserViewModel : ViewModel() {
     suspend fun loadUser(id: Int) {
         userState.value = UiState.Loading
         try {
-            val response = api.get<User>("/users/$id")
+            val response = api.get("/users/$id")
             userState.value = UiState.Success(response.body())
         } catch (e: BibiError) {
             userState.value = UiState.Error("Failed to load user: ${e.message}")
@@ -52,7 +62,7 @@ class UserViewModel : ViewModel() {
     suspend fun loadPosts(userId: Int) {
         postsState.value = UiState.Loading
         try {
-            val response = api.get<List<Post>>("/posts?userId=$userId")
+            val response = api.get("/posts?userId=$userId")
             postsState.value = UiState.Success(response.body())
         } catch (e: BibiError) {
             postsState.value = UiState.Error("Failed to load posts: ${e.message}")
@@ -63,27 +73,33 @@ class UserViewModel : ViewModel() {
 // ── Components ───────────────────────────────────────────────────────────────
 
 component fun UserCard(user: User) {
-    return (
-        <div class="user-card">
-            {user.avatarUrl != null && <img src={user.avatarUrl!!} alt={user.name} />}
-            <h2>{user.name}</h2>
-            <p>{user.email}</p>
-        </div>
-    )
+    return Card(elevation = 1, modifier = Modifier.fillMaxWidth()) {
+        Row(spacing = 12, verticalAlignment = "center") {
+            {user.avatarUrl != null && AsyncImage(
+                src = user.avatarUrl!!,
+                alt = user.name,
+                modifier = Modifier.size(48).borderRadius(24),
+                contentScale = "crop")}
+            Column(spacing = 4) {
+                Text(text = user.name,  style = TextStyle.titleMedium, color = Color.OnSurface)
+                Text(text = user.email, style = TextStyle.bodySmall,   color = Color.OnSurfaceVariant)
+            }
+        }
+    }
 }
 
 component fun PostCard(post: Post) {
-    return (
-        <div class="post-card">
-            <h3>{post.title}</h3>
-            <p>{post.body}</p>
-        </div>
-    )
+    return Card(elevation = 0, modifier = Modifier.fillMaxWidth()) {
+        Column(spacing = 4) {
+            Text(text = post.title, style = TextStyle.titleSmall,  color = Color.OnSurface)
+            Text(text = post.body,  style = TextStyle.bodySmall,   color = Color.OnSurfaceVariant)
+        }
+    }
 }
 
 component fun UserProfile(userId: Int) {
     val vm = useViewModel("user-$userId") { UserViewModel() }
-    val userState = collectAsState(vm.userState)
+    val userState  = collectAsState(vm.userState)
     val postsState = collectAsState(vm.postsState)
 
     // Load data on mount
@@ -92,29 +108,27 @@ component fun UserProfile(userId: Int) {
         vm.loadPosts(userId)
     }
 
-    return (
-        <div class="profile">
+    return Scaffold(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16), spacing = 16) {
             {
                 when (userState) {
-                    is UiState.Loading -> <div class="spinner">Loading user...</div>
-                    is UiState.Success -> <UserCard user={userState.data} />
-                    is UiState.Error   -> <div class="error">{userState.message}</div>
+                    is UiState.Loading -> Text(text = "Loading user...", style = TextStyle.bodyMedium, color = Color.OnSurfaceVariant)
+                    is UiState.Success -> UserCard(user = userState.data)
+                    is UiState.Error   -> Text(text = userState.message, style = TextStyle.bodyMedium, color = Color.Error)
                 }
             }
-            <section class="posts">
-                <h2>Posts</h2>
-                {
-                    when (postsState) {
-                        is UiState.Loading -> <div class="spinner">Loading posts...</div>
-                        is UiState.Success -> postsState.data.map { post ->
-                            <PostCard key={post.id} post={post} />
-                        }
-                        is UiState.Error   -> <div class="error">{postsState.message}</div>
+            Text(text = "Posts", style = TextStyle.titleLarge, color = Color.OnSurface)
+            {
+                when (postsState) {
+                    is UiState.Loading -> Text(text = "Loading posts...", style = TextStyle.bodyMedium, color = Color.OnSurfaceVariant)
+                    is UiState.Success -> postsState.data.map { post ->
+                        PostCard(key = post.id, post = post)
                     }
+                    is UiState.Error   -> Text(text = postsState.message, style = TextStyle.bodyMedium, color = Color.Error)
                 }
-            </section>
-        </div>
-    )
+            }
+        }
+    }
 }
 
 fun main() {
