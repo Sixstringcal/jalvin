@@ -4,11 +4,13 @@ A statically-typed programming language that compiles to TypeScript/TSX — and 
 
 ```jalvin
 component fun HelloWorld(name: String) {
-    return <h1>Hello, {name}!</h1>
+    return Column(spacing = 8) {
+        Text(text = "Hello, $name!", style = TextStyle.headlineLarge)
+    }
 }
 
 suspend fun main() {
-    val user = Bibi("https://api.example.com").get<User>("/me").body()
+    val user = Bibi("https://api.example.com").get("/me").body()
     println("Welcome back, ${user.name}!")
 }
 ```
@@ -119,7 +121,7 @@ fun greet(name: String): String = "Hello, $name!"
 
 suspend fun loadUser(id: Int): User {
     delay(100)
-    return Bibi("https://api.example.com").get<User>("/users/$id").body()
+    return Bibi("https://api.example.com").get("/users/$id").body()
 }
 ```
 
@@ -129,12 +131,13 @@ suspend fun loadUser(id: Int): User {
 component fun Counter(initial: Int = 0) {
     var count = mutableStateOf(initial)
 
-    return (
-        <div>
-            <span>{count.value}</span>
-            <button onClick={() -> count.value++}>+</button>
-        </div>
-    )
+    return Column(spacing = 8) {
+        Text(text = "${count.value}")
+        Row(spacing = 8) {
+            Button(text = "+", onClick = { count.value++ })
+            Button(text = "-", onClick = { count.value-- })
+        }
+    }
 }
 ```
 
@@ -167,13 +170,15 @@ when (result) {
 ### Bibi HTTP client
 
 ```jalvin
+// Create a client
 val api = Bibi("https://api.example.com") {
-    timeout(10_000)
-    bearer(authToken)
+    timeout(5_000)
+    headers { "Accept" to "application/json" }
+    bearer(token)
 }
 
 suspend fun createUser(user: NewUser): User {
-    return api.post<User>("/users", body = user).body()
+    return api.post("/users", body = user).body()
 }
 ```
 

@@ -151,9 +151,18 @@ suspend fun loadData(): String {
 
 ```
 component fun CounterButton(label: String, count: Int) {
-    return (
-        <button>{label}: {count}</button>
-    )
+    return Button(text = "$label: $count")
+}
+```
+
+Components may compose other components and layout primitives using function call syntax:
+
+```
+component fun Greeting(name: String) {
+    return Column(spacing = 8) {
+        Text(text = "Hello, $name!", style = TextStyle.headlineLarge)
+        Text(text = "Welcome to Jalvin.")
+    }
 }
 ```
 
@@ -494,14 +503,14 @@ val api = Bibi("https://api.example.com") {
 }
 
 // GET
-val response = api.get<User>("/users/1")
+val response = api.get("/users/1")
 val user = response.body()
 
 // POST
-val created = api.post<CreateResult>("/users", body = newUser).body()
+val created = api.post("/users", body = newUser).body()
 
 // DELETE
-api.delete<Unit>("/users/1")
+api.delete("/users/1")
 ```
 
 Bibi throws `BibiError` on non-2xx responses. Use try/catch or `?.` chaining.
