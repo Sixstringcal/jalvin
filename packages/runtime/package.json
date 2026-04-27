@@ -3,11 +3,11 @@
   "version": "2.0.0",
   "description": "Jalvin runtime — Bibi HTTP client, coroutines, StateFlow, ViewModel, UI hooks",
   "main": "dist/index.js",
-  "module": "dist/index.mjs",
+  "module": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.mjs",
+      "import": "./dist/index.js",
       "require": "./dist/index.js",
       "types": "./dist/index.d.ts"
     }
