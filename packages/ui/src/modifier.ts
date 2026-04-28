@@ -9,7 +9,8 @@
 //   Modifier.fillMaxWidth().padding(16).background(Color.Surface)
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { CSSProperties } from "react";
+// DOM-compatible CSS properties — mirrors React's CSSProperties but has no React dependency.
+export type CSSProperties = { [key: string]: string | number | undefined };
 
 export class Modifier {
   readonly _styles: CSSProperties;
@@ -41,6 +42,10 @@ export class Modifier {
   static cursor(v: string):           Modifier { return new Modifier().cursor(v); }
   static zIndex(v: number):           Modifier { return new Modifier().zIndex(v); }
   static overflow(v: "visible" | "hidden" | "scroll" | "auto"): Modifier { return new Modifier().overflow(v); }
+  static marginTop(v: number | string):    Modifier { return new Modifier().marginTop(v); }
+  static marginBottom(v: number | string): Modifier { return new Modifier().marginBottom(v); }
+  static marginLeft(v: number | string):   Modifier { return new Modifier().marginLeft(v); }
+  static marginRight(v: number | string):  Modifier { return new Modifier().marginRight(v); }
 
   // ── Fluent instance methods ────────────────────────────────────────────────
 
@@ -74,6 +79,18 @@ export class Modifier {
   }
   marginVertical(v: number): Modifier {
     return this.with({ marginTop: `${v}px`, marginBottom: `${v}px` });
+  }
+  marginTop(v: number | string): Modifier {
+    return this.with({ marginTop: typeof v === "number" ? `${v}px` : v });
+  }
+  marginBottom(v: number | string): Modifier {
+    return this.with({ marginBottom: typeof v === "number" ? `${v}px` : v });
+  }
+  marginLeft(v: number | string): Modifier {
+    return this.with({ marginLeft: typeof v === "number" ? `${v}px` : v });
+  }
+  marginRight(v: number | string): Modifier {
+    return this.with({ marginRight: typeof v === "number" ? `${v}px` : v });
   }
 
   background(c: string): Modifier { return this.with({ backgroundColor: c }); }
@@ -167,7 +184,7 @@ export class Modifier {
     );
   }
 
-  /** Extract style + className props for spreading onto a React element. */
+  /** Extract style + className props. */
   toProps(): { style?: CSSProperties; className?: string } {
     const hasStyles = Object.keys(this._styles).length > 0;
     const hasClasses = this._classNames.length > 0;
@@ -175,5 +192,16 @@ export class Modifier {
       style: hasStyles ? this._styles : undefined,
       className: hasClasses ? this._classNames.join(" ") : undefined,
     };
+  }
+}
+
+/** Apply a Modifier's styles and className to a DOM element. */
+export function applyModifier(el: HTMLElement, mod: Modifier): void {
+  const props = mod.toProps();
+  if (props.className) el.className = props.className;
+  if (props.style) {
+    for (const [k, v] of Object.entries(props.style)) {
+      if (v !== undefined) (el.style as unknown as Record<string, string>)[k] = String(v);
+    }
   }
 }

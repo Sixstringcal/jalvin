@@ -1,5 +1,4 @@
-import React from "react";
-import { Modifier } from "./modifier.js";
+import { Modifier, applyModifier } from "./modifier.js";
 
 export type Alignment = "start" | "center" | "end" | "stretch";
 export type Arrangement = "start" | "center" | "end" | "spaceBetween" | "spaceAround" | "spaceEvenly";
@@ -25,7 +24,6 @@ function alignmentToAlign(a: Alignment): string {
 }
 
 export interface ColumnProps {
-  children?: React.ReactNode;
   modifier?: Modifier;
   spacing?: number;
   verticalArrangement?: Arrangement;
@@ -33,29 +31,22 @@ export interface ColumnProps {
 }
 
 /** Vertical flex container — analogous to Compose's Column. */
-export function Column({
-  children,
-  modifier,
-  spacing,
-  verticalArrangement = "start",
-  horizontalAlignment = "start",
-}: ColumnProps): React.ReactElement {
-  const modProps = modifier?.toProps() ?? {};
-  return React.createElement("div", {
-    ...modProps,
-    style: {
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: arrangementToJustify(verticalArrangement),
-      alignItems: alignmentToAlign(horizontalAlignment),
-      gap: spacing !== undefined ? `${spacing}px` : undefined,
-      ...modProps.style,
-    },
-  }, children);
+export function Column(
+  { modifier, spacing, verticalArrangement = "start", horizontalAlignment = "start" }: ColumnProps,
+  children?: HTMLElement[]
+): HTMLElement {
+  const el = document.createElement("div");
+  el.style.display = "flex";
+  el.style.flexDirection = "column";
+  el.style.justifyContent = arrangementToJustify(verticalArrangement);
+  el.style.alignItems = alignmentToAlign(horizontalAlignment);
+  if (spacing !== undefined) el.style.gap = `${spacing}px`;
+  if (modifier) applyModifier(el, modifier);
+  for (const child of children ?? []) el.appendChild(child);
+  return el;
 }
 
 export interface RowProps {
-  children?: React.ReactNode;
   modifier?: Modifier;
   spacing?: number;
   horizontalArrangement?: Arrangement;
@@ -64,59 +55,41 @@ export interface RowProps {
 }
 
 /** Horizontal flex container — analogous to Compose's Row. */
-export function Row({
-  children,
-  modifier,
-  spacing,
-  horizontalArrangement = "start",
-  verticalAlignment = "center",
-  wrap = false,
-}: RowProps): React.ReactElement {
-  const modProps = modifier?.toProps() ?? {};
-  return React.createElement("div", {
-    ...modProps,
-    style: {
-      display: "flex",
-      flexDirection: "row",
-      justifyContent: arrangementToJustify(horizontalArrangement),
-      alignItems: alignmentToAlign(verticalAlignment),
-      flexWrap: wrap ? "wrap" : "nowrap",
-      gap: spacing !== undefined ? `${spacing}px` : undefined,
-      ...modProps.style,
-    },
-  }, children);
+export function Row(
+  { modifier, spacing, horizontalArrangement = "start", verticalAlignment = "center", wrap = false }: RowProps,
+  children?: HTMLElement[]
+): HTMLElement {
+  const el = document.createElement("div");
+  el.style.display = "flex";
+  el.style.flexDirection = "row";
+  el.style.justifyContent = arrangementToJustify(horizontalArrangement);
+  el.style.alignItems = alignmentToAlign(verticalAlignment);
+  el.style.flexWrap = wrap ? "wrap" : "nowrap";
+  if (spacing !== undefined) el.style.gap = `${spacing}px`;
+  if (modifier) applyModifier(el, modifier);
+  for (const child of children ?? []) el.appendChild(child);
+  return el;
 }
 
 export interface BoxProps {
-  children?: React.ReactNode;
   modifier?: Modifier;
   contentAlignment?: "topStart" | "topCenter" | "topEnd" | "centerStart" | "center" | "centerEnd" | "bottomStart" | "bottomCenter" | "bottomEnd";
 }
 
 /** Positioned container — analogous to Compose's Box. */
-export function Box({
-  children,
-  modifier,
-  contentAlignment = "topStart",
-}: BoxProps): React.ReactElement {
-  const modProps = modifier?.toProps() ?? {};
-  const [vertical, horizontal] = contentAlignment === "center"
-    ? ["center", "center"]
-    : contentAlignment.startsWith("top")
-      ? ["flex-start", contentAlignment.includes("Center") ? "center" : contentAlignment.includes("End") ? "flex-end" : "flex-start"]
-      : contentAlignment.startsWith("bottom")
-        ? ["flex-end", contentAlignment.includes("Center") ? "center" : contentAlignment.includes("End") ? "flex-end" : "flex-start"]
-        : ["center", contentAlignment.includes("Center") ? "center" : contentAlignment.includes("End") ? "flex-end" : "flex-start"];
-
-  return React.createElement("div", {
-    ...modProps,
-    style: {
-      position: "relative",
-      display: "flex",
-      flexDirection: "column",
-      alignItems: horizontal,
-      justifyContent: vertical,
-      ...modProps.style,
-    },
-  }, children);
+export function Box(
+  { modifier, contentAlignment = "topStart" }: BoxProps,
+  children?: HTMLElement[]
+): HTMLElement {
+  const el = document.createElement("div");
+  el.style.position = "relative";
+  el.style.display = "flex";
+  el.style.flexDirection = "column";
+  if (contentAlignment === "center") {
+    el.style.alignItems = "center";
+    el.style.justifyContent = "center";
+  }
+  if (modifier) applyModifier(el, modifier);
+  for (const child of children ?? []) el.appendChild(child);
+  return el;
 }

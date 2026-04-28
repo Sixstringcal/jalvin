@@ -1,131 +1,48 @@
-import React from "react";
-import { Modifier } from "./modifier.js";
-import { Color } from "./colors.js";
-import type { CSSProperties } from "react";
+import { Modifier, applyModifier } from "./modifier.js";
 
 export type ButtonVariant = "filled" | "outlined" | "text" | "tonal";
 
 export interface ButtonProps {
   text?: string;
-  children?: React.ReactNode;
+  innerHTML?: string;
   onClick?: () => void;
   modifier?: Modifier;
   variant?: ButtonVariant;
   enabled?: boolean;
-  /** Icon rendered before the label */
-  leadingIcon?: React.ReactNode;
-  /** Icon rendered after the label */
-  trailingIcon?: React.ReactNode;
   type?: "button" | "submit" | "reset";
 }
 
-const BASE: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: "8px",
-  padding: "8px 16px",
-  borderRadius: "20px",
-  fontSize: "0.875rem",
-  fontWeight: 500,
-  letterSpacing: "0.031em",
-  cursor: "pointer",
-  border: "none",
-  outline: "none",
-  transition: "background-color 0.15s, opacity 0.15s",
-  userSelect: "none",
-};
-
-const VARIANT_STYLES: Record<ButtonVariant, CSSProperties> = {
-  filled: {
-    backgroundColor: Color.Primary,
-    color: Color.OnPrimary,
-  },
-  outlined: {
-    backgroundColor: "transparent",
-    color: Color.Primary,
-    border: `1px solid ${Color.Primary}`,
-  },
-  text: {
-    backgroundColor: "transparent",
-    color: Color.Primary,
-    padding: "8px 12px",
-  },
-  tonal: {
-    backgroundColor: Color.PrimaryLight + "33",
-    color: Color.Primary,
-  },
-};
-
 /** Button — analogous to Compose's Button / OutlinedButton / TextButton. */
-export function Button({
-  text,
-  children,
-  onClick,
-  modifier,
-  variant = "filled",
-  enabled = true,
-  leadingIcon,
-  trailingIcon,
-  type = "button",
-}: ButtonProps): React.ReactElement {
-  const modProps = modifier?.toProps() ?? {};
-  return React.createElement(
-    "button",
-    {
-      type,
-      onClick: enabled ? onClick : undefined,
-      disabled: !enabled,
-      ...modProps,
-      style: {
-        ...BASE,
-        ...VARIANT_STYLES[variant],
-        opacity: enabled ? 1 : 0.4,
-        ...modProps.style,
-      },
-    },
-    leadingIcon,
-    text ?? children,
-    trailingIcon,
-  );
+export function Button(
+  { text, innerHTML: html, onClick, modifier, enabled = true, type = "button" }: ButtonProps,
+  children?: HTMLElement[]
+): HTMLButtonElement {
+  const el = document.createElement("button");
+  el.type = type;
+  if (text !== undefined) el.textContent = text;
+  if (html !== undefined) el.innerHTML = html;
+  if (onClick && enabled) el.addEventListener("click", onClick);
+  if (!enabled) el.disabled = true;
+  if (modifier) applyModifier(el, modifier);
+  for (const child of children ?? []) el.appendChild(child);
+  return el;
 }
 
 export interface IconButtonProps {
+  innerHTML?: string;
   onClick?: () => void;
   modifier?: Modifier;
   enabled?: boolean;
-  children: React.ReactNode;
+  type?: "button" | "submit" | "reset";
   "aria-label"?: string;
 }
 
 /** Icon-only circular button. */
-export function IconButton({
-  onClick,
-  modifier,
-  enabled = true,
-  children,
-  "aria-label": ariaLabel,
-}: IconButtonProps): React.ReactElement {
-  const modProps = modifier?.toProps() ?? {};
-  return React.createElement("button", {
-    type: "button",
-    onClick: enabled ? onClick : undefined,
-    disabled: !enabled,
-    "aria-label": ariaLabel,
-    ...modProps,
-    style: {
-      display: "inline-flex",
-      alignItems: "center",
-      justifyContent: "center",
-      width: "40px",
-      height: "40px",
-      borderRadius: "50%",
-      border: "none",
-      background: "transparent",
-      cursor: enabled ? "pointer" : "default",
-      opacity: enabled ? 1 : 0.4,
-      transition: "background-color 0.15s",
-      ...modProps.style,
-    },
-  }, children);
+export function IconButton(
+  { innerHTML, onClick, modifier, enabled = true, type = "button", "aria-label": ariaLabel }: IconButtonProps,
+  children?: HTMLElement[]
+): HTMLButtonElement {
+  const el = Button({ innerHTML, onClick, modifier, enabled, type }, children);
+  if (ariaLabel) el.setAttribute("aria-label", ariaLabel);
+  return el;
 }

@@ -166,9 +166,7 @@ export class CodeGenerator {
   private buildPreamble(): string {
     const lines: string[] = [];
 
-    if (this.hasComponents) {
-      lines.push(`import React from "react";`);
-    }
+    // No React import — @jalvin/ui is DOM-based.
 
     const needed = [...this.runtimeSymbolsNeeded];
     if (needed.length > 0) {
@@ -331,7 +329,7 @@ export class CodeGenerator {
       ? `{ ${decl.params.map((p) => p.name + (p.defaultValue ? ` = ${this.emitExpr(p.defaultValue)}` : "")).join(", ")} }: ${decl.name}Props`
       : "";
 
-    this.w.writeIndentedLine(`${vis}function ${decl.name}(${propsParam}): React.ReactElement | null {`);
+    this.w.writeIndentedLine(`${vis}function ${decl.name}(${propsParam}): HTMLElement {`);
     this.w.pushIndent();
     this.emitBlock(decl.body);
     this.w.popIndent();
@@ -1386,10 +1384,9 @@ export class CodeGenerator {
       return `(${this.emitLambdaExpr(expr.trailingLambda)})()`;
     }
 
-    // Compose-style component call: Column(modifier = ...) { ... } → <Column ...>...</Column>
+    // Compose-style component call: Column(modifier = ...) { ... } → Column({ modifier: ... }, [children])
     if (expr.callee.kind === "NameExpr" && this.componentNames.has(expr.callee.name)) {
-      const calleeType = this.typeMap.get(expr.callee);
-      return this.emitComposeCallAsJsx(expr, calleeType);
+      return this.emitComposeCallAsDom(expr);
     }
 
     // Handle named arguments by reordering them to match positional parameters
@@ -1468,41 +1465,39 @@ export class CodeGenerator {
     return false;
   }
 
-  // ── Compose-style component call → JSX ────────────────────────────────────
+  // ── Compose-style component call → DOM ──────────────────────────────────────
 
-  /** Emit `Column(modifier = ...) { ... }` as `<Column modifier={...}>...</Column>` */
-  private emitComposeCallAsJsx(expr: AST.CallExpr, calleeType: JType | undefined): string {
+  /** Emit `Column(modifier = ...) { ... }` as `Column({ modifier: ... }, [children])` */
+  private emitComposeCallAsDom(expr: AST.CallExpr): string {
     const tag = (expr.callee as AST.NameExpr).name;
+    const calleeType = this.typeMap.get(expr.callee);
     const paramNames = calleeType?.tag === "func" ? calleeType.paramNames : undefined;
 
-    // Build JSX props from named/positional args
+    // Build props object from named/positional args
     const props: string[] = [];
     for (let i = 0; i < expr.args.length; i++) {
       const arg = expr.args[i]!;
       const propName = arg.name ?? paramNames?.[i];
-      if (!propName) continue; // positional arg with unknown name — skip
+      if (!propName) continue;
       const val = this.emitExpr(arg.value);
-      props.push(`${propName}={${val}}`);
+      props.push(`${propName}: ${val}`);
     }
 
-    const propsStr = props.length > 0 ? " " + props.join(" ") : "";
+    const propsStr = props.length > 0 ? `{ ${props.join(", ")} }` : "{}";
 
     if (expr.trailingLambda) {
-      const children = this.emitLambdaBodyAsJsxChildren(expr.trailingLambda);
-      return `<${tag}${propsStr}>${children}</${tag}>`;
+      const children = this.emitLambdaBodyAsDomChildren(expr.trailingLambda);
+      return children ? `${tag}(${propsStr}, [${children}])` : `${tag}(${propsStr})`;
     }
-    return `<${tag}${propsStr} />`;
+    return `${tag}(${propsStr})`;
   }
 
-  /** Emit each statement in a trailing-lambda body as a JSX child. */
-  private emitLambdaBodyAsJsxChildren(lambda: AST.LambdaExpr): string {
-    return lambda.body.map((stmt) => {
-      if (stmt.kind !== "ExprStmt") return ""; // val/var decls can't be JSX children
-      const s = this.emitExpr((stmt as AST.ExprStmt).expr);
-      // Component calls return JSX strings (start with <) — embed directly.
-      // Everything else gets wrapped in {}.
-      return s.trimStart().startsWith("<") ? s : `{${s}}`;
-    }).join("");
+  /** Collect each expression statement in a trailing-lambda body as DOM children. */
+  private emitLambdaBodyAsDomChildren(lambda: AST.LambdaExpr): string {
+    return lambda.body
+      .filter((stmt) => stmt.kind === "ExprStmt")
+      .map((stmt) => this.emitExpr((stmt as AST.ExprStmt).expr))
+      .join(", ");
   }
 
   private emitLambdaExpr(expr: AST.LambdaExpr): string {
