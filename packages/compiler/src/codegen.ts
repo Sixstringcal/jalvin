@@ -157,7 +157,7 @@ export class CodeGenerator {
     return {
       code,
       lineMap: this.w.lineMap,
-      isJsx: this.hasComponents,
+      isJsx: false, // DOM-based emit — no JSX
     };
   }
 

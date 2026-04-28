@@ -1,6 +1,6 @@
 {
   "name": "@jalvin/vite-plugin",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Vite plugin for the Jalvin language — import .jalvin files directly",
   "main": "dist/index.js",
   "module": "dist/index.mjs",

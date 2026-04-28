@@ -61,7 +61,7 @@ describe("Integration — Counter example output structure", () => {
 
   it("marks the output as JSX", () => {
     const result = compileExample(path.join(EXAMPLES_DIR, "01-counter/Counter.jalvin"));
-    expect(result.isJsx).toBe(true);
+    expect(result.isJsx).toBe(false);
   });
 });
 
@@ -87,7 +87,7 @@ describe("Integration — UIShowcase output structure", () => {
 
   it("marks the output as JSX", () => {
     const result = compileExample(path.join(EXAMPLES_DIR, "05-ui-showcase/UIShowcase.jalvin"));
-    expect(result.isJsx).toBe(true);
+    expect(result.isJsx).toBe(false);
   });
 
   it("emits section sub-components", () => {
