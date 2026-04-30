@@ -1,14 +1,19 @@
 {
   "name": "vscode-jalvin",
   "displayName": "Jalvin",
-  "description": "Syntax highlighting for the Jalvin programming language",
+  "description": "Syntax highlighting and formatting for the Jalvin programming language",
   "version": "1.0.0",
   "publisher": "jalvin-lang",
   "engines": {
     "vscode": "^1.75.0"
   },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguage:jalvin"
+  ],
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Formatters"
   ],
   "contributes": {
     "languages": [
@@ -31,5 +36,16 @@
         "path": "./syntaxes/jalvin.tmLanguage.json"
       }
     ]
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "package": "vsce package",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
   }
 }

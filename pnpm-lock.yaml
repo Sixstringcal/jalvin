@@ -132,7 +132,17 @@ importers:
 
   packages/vscode-extension: {}
 
-  packages/vscode-jalvin: {}
+  packages/vscode-jalvin:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.39
+      '@types/vscode':
+        specifier: ^1.75.0
+        version: 1.118.0
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
 
   packages/webpack-plugin:
     dependencies:
@@ -623,6 +633,9 @@ packages:
 
   '@types/react@18.3.28':
     resolution: {integrity: sha512-z9VXpC7MWrhfWipitjNdgCauoMLRdIILQsAEV+ZesIzBq/oUlxk0m3ApZuMFCXdnS4U7KrI+l3WRUEGQ8K1QKw==}
+
+  '@types/vscode@1.118.0':
+    resolution: {integrity: sha512-Ah6eTlqDcwIMELEVwQMO++rJAFBRz/oLluLD/vWdYrH1KuI9kfpaM+7pg0OvvascgcJy+ghLCERAYouM4QbzGw==}
 
   '@types/webpack@5.28.5':
     resolution: {integrity: sha512-wR87cgvxj3p6D0Crt1r5avwqffqPXUkNlnQ1mjU93G7gCuFjufZR4I6j8cz5g1F1tTYpfOOFvly+cmIQwL9wvw==}
@@ -1919,6 +1932,8 @@ snapshots:
     dependencies:
       '@types/prop-types': 15.7.15
       csstype: 3.2.3
+
+  '@types/vscode@1.118.0': {}
 
   '@types/webpack@5.28.5':
     dependencies:
