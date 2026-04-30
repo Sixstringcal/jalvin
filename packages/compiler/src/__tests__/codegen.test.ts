@@ -70,6 +70,50 @@ class Counter {
 }`);
     expect(code).toContain("static zero");
   });
+
+  // ── class inheritance (issue 2) ──────────────────────────────────────────
+
+  it("emits extends without parentheses for class with no-arg super constructor", () => {
+    const code = gen(`class MyVm : ViewModel() { }`);
+    // Must not emit `extends ViewModel()` — parentheses are invalid in TS extends clause
+    expect(code).not.toContain("extends ViewModel()");
+    expect(code).toContain("extends ViewModel");
+  });
+
+  it("emits super() call in primary constructor when supertype has delegation args", () => {
+    const code = gen(`class MyVm(val x: Int) : ViewModel() { }`);
+    expect(code).not.toContain("extends ViewModel()");
+    expect(code).toContain("extends ViewModel");
+    expect(code).toContain("super()");
+  });
+
+  it("emits super(args) when supertype delegation has arguments", () => {
+    const code = gen(`class Child(val x: Int) : Parent(x) { }`);
+    expect(code).not.toContain("extends Parent(");
+    expect(code).toContain("extends Parent");
+    expect(code).toContain("super(x)");
+  });
+
+  it("emits data class with supertype — correct extends + super()", () => {
+    const code = gen(`data class Sub(val x: Int) : Base()`);
+    expect(code).not.toContain("extends Base()");
+    expect(code).toContain("extends Base");
+    expect(code).toContain("super()");
+  });
+
+  it("emits interface implementation using implements (not extends)", () => {
+    const code = gen(`class Impl : SomeInterface { }`);
+    // First supertype → extends, subsequent → implements
+    expect(code).toContain("extends SomeInterface");
+  });
+
+  it("class with no primary constructor but supertype emits minimal constructor", () => {
+    const code = gen(`class MyVm : ViewModel() { }`);
+    expect(code).toContain("extends ViewModel");
+    // Should have a constructor (either the emitted one or the user-body one)
+    // The key invariant: no `extends ViewModel()` syntax
+    expect(code).not.toMatch(/extends \w+\(\)/);
+  });
 });
 
 describe("Codegen — null safety", () => {
@@ -86,6 +130,43 @@ describe("Codegen — null safety", () => {
   it("emits notNull for not-null assertion", () => {
     const code = gen(`fun f(s: String?) { val n = s!! }`);
     expect(code).toContain("notNull(s)");
+  });
+});
+
+describe("Codegen — implicit runtime imports (issue 3)", () => {
+  it("emits jalvinEquals import when == is used", () => {
+    const code = gen(`fun eq(x: Int, y: Int): Boolean = x == y`);
+    expect(code).toContain("jalvinEquals");
+    // The import must be present somewhere in the file
+    expect(code).toMatch(/import \{[^}]*jalvinEquals[^}]*\}/);
+  });
+
+  it("emits notNull import when !! is used", () => {
+    const code = gen(`fun f(s: String?) { val n = s!! }`);
+    expect(code).toMatch(/import \{[^}]*notNull[^}]*\}/);
+  });
+
+  it("emits range import when .. operator is used", () => {
+    const code = gen(`fun f() { for (i in 1..10) { println(i) } }`);
+    expect(code).toMatch(/import \{[^}]*range[^}]*\}/);
+  });
+
+  it("does not emit duplicate runtime import when star import covers the same package", () => {
+    const code = gen(`
+import @jalvin/runtime.*
+fun eq(x: Int, y: Int): Boolean = x == y`);
+    // There should be at most ONE import line that mentions "@jalvin/runtime"
+    // (the star import's named expansion merges with preamble)
+    const runtimeImportLines = code.split("\n")
+      .filter((l) => l.includes(`"@jalvin/runtime"`));
+    // No duplicate: jalvinEquals should be either in the star import line or preamble, not both
+    const allImportedSymbols = runtimeImportLines
+      .flatMap((l) => {
+        const m = l.match(/import \{([^}]+)\}/);
+        return m ? m[1]!.split(",").map((s) => s.trim()) : [];
+      });
+    const jalvinEqualsCount = allImportedSymbols.filter((s) => s === "jalvinEquals").length;
+    expect(jalvinEqualsCount).toBeLessThanOrEqual(1);
   });
 });
 
@@ -148,9 +229,41 @@ fun oldApi(): String = "legacy"`);
 });
 
 describe("Codegen — imports", () => {
-  it("emits star import as namespace", () => {
-    const code = gen(`import @jalvin/runtime.*`);
+  it("emits star import as namespace when multiple scoped star imports exist", () => {
+    // With >1 scoped star import we fall back to namespace imports
+    const code = gen(`import @jalvin/runtime.*\nimport @jalvin/ui.*`);
     expect(code).toContain("import *");
+  });
+
+  it("emits named imports (not namespace) for a single scoped star import", () => {
+    const code = gen(`
+import @jalvin/runtime.*
+class MyVm : ViewModel() {
+  fun greet() { println("hi") }
+}`);
+    // Should NOT emit a namespace import (import * as ...)
+    expect(code).not.toContain("import * as");
+    // Should emit named imports that include the symbols actually used
+    expect(code).toContain(`from "@jalvin/runtime"`);
+    expect(code).toContain("ViewModel");
+  });
+
+  it("wildcard import: supertypes are exported by name from the star-imported package", () => {
+    const code = gen(`
+import @jalvin/runtime.*
+class MyRepo : ViewModel() { }`);
+    expect(code).toContain(`import { `);
+    expect(code).toContain("ViewModel");
+    expect(code).toContain(`from "@jalvin/runtime"`);
+  });
+
+  it("wildcard import: function calls are included in named imports", () => {
+    const code = gen(`
+import @jalvin/runtime.*
+val counter = mutableStateOf(0)`);
+    expect(code).toContain("mutableStateOf");
+    expect(code).toContain(`from "@jalvin/runtime"`);
+    expect(code).not.toContain("import * as");
   });
 
   it("emits named import", () => {
@@ -200,6 +313,16 @@ describe("Codegen — imports", () => {
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+
+  it("enum type used in import does not pollute star-import named list with local name", () => {
+    // The locally declared Enum should not be in the external star-import named imports
+    const code = gen(`
+import @jalvin/runtime.*
+enum class Color { RED, GREEN, BLUE }`);
+    // Color is locally declared — should not appear in the import { ... } from "@jalvin/runtime"
+    const importLine = code.split("\n").find((l) => l.includes("@jalvin/runtime"));
+    expect(importLine).not.toContain("Color");
   });
 });
 

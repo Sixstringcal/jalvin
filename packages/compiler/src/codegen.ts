@@ -118,6 +118,14 @@ export class CodeGenerator {
    * Populated during top-level emit; used at call sites for rewriting.
    */
   private primitiveExtensions = new Map<string, Map<string, string>>();
+  /**
+   * When a scoped star import exists (e.g. import @jalvin/runtime.*), contains the
+   * set of external symbol names to emit as named imports from that package instead
+   * of a namespace import. Empty if namespace-import behavior is used.
+   */
+  private externalStarCandidates = new Set<string>();
+  /** Module specifiers whose symbols are already covered by a named star-import expansion. */
+  private handledStarImportModules = new Set<string>();
 
   constructor(opts: Partial<CodegenOptions> = {}) {
     this.opts = { ...DEFAULT_CODEGEN_OPTIONS, ...opts };
@@ -158,6 +166,24 @@ export class CodeGenerator {
       }
     }
 
+    // Pre-compute external star-import candidates (before emitting anything)
+    this.externalStarCandidates = new Set<string>();
+    this.handledStarImportModules = new Set<string>();
+    const scopedStarImports = program.imports.filter(
+      (imp) => imp.star && imp.path[0]!.startsWith("@")
+    );
+    if (scopedStarImports.length === 1) {
+      // Only resolve when there's exactly one scoped star import — with multiple
+      // star imports we can't safely split external names across packages.
+      const referencedNames = this.gatherReferencedNames(program);
+      const localBindings = this.gatherAllLocalBindings(program);
+      for (const name of referencedNames) {
+        if (!localBindings.has(name) && !JS_GLOBAL_NAMES.has(name)) {
+          this.externalStarCandidates.add(name);
+        }
+      }
+    }
+
     // Emit header
     this.emitHeader(program);
 
@@ -185,7 +211,12 @@ export class CodeGenerator {
 
     // No React import — @jalvin/ui is DOM-based.
 
-    const needed = [...this.runtimeSymbolsNeeded];
+    // Emit compiler-injected runtime symbols, but only those NOT already covered
+    // by a star-import's named-import expansion (to avoid duplicate imports).
+    const alreadyCovered = this.handledStarImportModules.has(this.opts.runtimeImport)
+      ? this.externalStarCandidates
+      : new Set<string>();
+    const needed = [...this.runtimeSymbolsNeeded].filter((s) => !alreadyCovered.has(s));
     if (needed.length > 0) {
       lines.push(`import { ${needed.sort().join(", ")} } from "${this.opts.runtimeImport}";`);
     }
@@ -227,7 +258,7 @@ export class CodeGenerator {
         const precedingParts = imp.path.slice(0, -1);
         const precedingRelPath = precedingParts.join("/");
         const fileExts = [".ts", ".tsx", ".jalvin"];
-        const precedingIsFile = fileExts.some((ext) =>
+        const precedingIsFile = precedingParts.length > 0 && fileExts.some((ext) =>
           fs.existsSync(nodePath.join(sourceRoot, precedingRelPath + ext))
         );
         moduleSpecifier = precedingIsFile
@@ -235,7 +266,15 @@ export class CodeGenerator {
           : imp.path.join("/");       // src.models.Rotation → "src/models/Rotation"
       }
 
-      if (imp.star) {
+      if (imp.star && isScoped && this.externalStarCandidates.size > 0) {
+        // Named-import expansion of a scoped star import.
+        // Emit explicit named imports for each external symbol used in the file so
+        // that symbols like `ViewModel`, `mutableStateOf` are directly in scope.
+        const symbols = [...this.externalStarCandidates].sort();
+        this.w.writeIndentedLine(`import { ${symbols.join(", ")} } from "${moduleSpecifier}";`);
+        this.handledStarImportModules.add(moduleSpecifier);
+      } else if (imp.star) {
+        // Fallback: namespace import (multiple scoped star imports or no candidates).
         this.w.writeIndentedLine(`import * as ${imp.path[imp.path.length - 1]!} from "${moduleSpecifier}";`);
       } else if (imp.alias) {
         const named = imp.path[imp.path.length - 1]!;
@@ -395,9 +434,21 @@ export class CodeGenerator {
     this.w.writeIndentedLine(`${vis}${abstract}class ${decl.name}${typeParams}${superTypes} {`);
     this.w.pushIndent();
 
+    // The first supertype's delegateArgs become the `super(args)` call inside the constructor.
+    const superDelegateArgs = decl.superTypes[0]?.delegateArgs ?? null;
+
     if (decl.primaryConstructor) {
       const initBlocks = decl.body?.members.filter((m): m is AST.InitBlock => m.kind === "InitBlock") ?? [];
-      this.emitPrimaryConstructorProps(decl.primaryConstructor.params, initBlocks);
+      this.emitPrimaryConstructorProps(decl.primaryConstructor.params, initBlocks, superDelegateArgs);
+    } else if (superDelegateArgs !== null) {
+      // No primary constructor but the supertype has explicit delegation args —
+      // emit a minimal constructor that forwards them to super().
+      const superArgsStr = superDelegateArgs.map((a) => this.emitExpr(a.value)).join(", ");
+      this.w.writeIndentedLine(`constructor() {`);
+      this.w.pushIndent();
+      this.w.writeIndentedLine(`super(${superArgsStr});`);
+      this.w.popIndent();
+      this.w.writeIndentedLine(`}`);
     }
 
     if (decl.body) {
@@ -439,7 +490,12 @@ export class CodeGenerator {
     }).join(", ");
     this.w.writeIndentedLine(`constructor(${ctorParams}) {`);
     this.w.pushIndent();
-    if (decl.superTypes.length > 0) this.w.writeIndentedLine(`super();`);
+    // Emit super() with actual delegation args (or empty call if delegateArgs is []).
+    const dataSuperDelegateArgs = decl.superTypes[0]?.delegateArgs ?? null;
+    if (dataSuperDelegateArgs !== null) {
+      const superArgsStr = dataSuperDelegateArgs.map((a) => this.emitExpr(a.value)).join(", ");
+      this.w.writeIndentedLine(`super(${superArgsStr});`);
+    }
     for (const p of props) {
       this.w.writeIndentedLine(`this.${p.name} = ${p.name};`);
     }
@@ -868,7 +924,11 @@ export class CodeGenerator {
     }
   }
 
-  private emitPrimaryConstructorProps(params: readonly AST.Param[], initBlocks?: ReadonlyArray<AST.InitBlock>): void {
+  private emitPrimaryConstructorProps(
+    params: readonly AST.Param[],
+    initBlocks?: ReadonlyArray<AST.InitBlock>,
+    superDelegateArgs?: ReadonlyArray<AST.CallArg> | null
+  ): void {
     for (const p of params) {
       if (p.propertyKind) {
         const ro = p.propertyKind === "val" ? "readonly " : "";
@@ -885,6 +945,11 @@ export class CodeGenerator {
     });
     this.w.writeIndentedLine(`constructor(${ctorParams.join(", ")}) {`);
     this.w.pushIndent();
+    // super() call must be the first statement if there is a supertype.
+    if (superDelegateArgs !== null && superDelegateArgs !== undefined) {
+      const superArgsStr = superDelegateArgs.map((a) => this.emitExpr(a.value)).join(", ");
+      this.w.writeIndentedLine(`super(${superArgsStr});`);
+    }
     for (const p of params) {
       if (p.propertyKind) {
         this.w.writeIndentedLine(`this.${p.name} = ${p.name};`);
@@ -1729,11 +1794,10 @@ export class CodeGenerator {
     const parts: string[] = [];
     let first = true;
     for (const s of superTypes) {
-      const args = s.delegateArgs
-        ? `(${s.delegateArgs.map((a) => this.emitExpr(a.value)).join(", ")})`
-        : "";
+      // TypeScript does NOT allow constructor arguments in the `extends` clause.
+      // Delegation args are passed via `super(args)` inside the constructor.
       if (first) {
-        parts.push(` extends ${this.emitTypeRef(s.type)}${args}`);
+        parts.push(` extends ${this.emitTypeRef(s.type)}`);
         first = false;
       } else {
         parts.push(` implements ${this.emitTypeRef(s.type)}`);
@@ -1777,6 +1841,174 @@ export class CodeGenerator {
       default:    return op;
     }
   }
+
+  // ── AST name walkers (for wildcard import resolution) ─────────────────────
+
+  /**
+   * Walk the entire program AST and collect all identifier names that are
+   * REFERENCED (i.e., used) in the code: NameExpr values and the first name
+   * component of SimpleTypeRef / GenericTypeRef nodes.
+   *
+   * Jalvin primitive type names (String, Boolean, …) that map to TS primitives
+   * are excluded from TypeRef collection since they never need an import.
+   */
+  private gatherReferencedNames(program: AST.Program): Set<string> {
+    const names = new Set<string>();
+    const visited = new WeakSet<object>();
+
+    const walk = (val: unknown): void => {
+      if (!val || typeof val !== "object") return;
+      if (Array.isArray(val)) {
+        for (const item of val) walk(item);
+        return;
+      }
+      const obj = val as Record<string, unknown>;
+      if (visited.has(obj)) return;
+      visited.add(obj);
+
+      const kind = obj["kind"];
+
+      if (kind === "NameExpr") {
+        const name = obj["name"];
+        if (typeof name === "string") names.add(name);
+        return; // leaf node
+      }
+      if (kind === "SimpleTypeRef") {
+        const nameArr = obj["name"] as string[] | undefined;
+        if (Array.isArray(nameArr) && nameArr.length > 0) {
+          const first = nameArr[0]!;
+          // Skip Jalvin primitive type names — they're erased to TS primitives.
+          if (!(first in PRIMITIVE_TYPE_MAP)) names.add(first);
+        }
+        return;
+      }
+      if (kind === "GenericTypeRef") {
+        const base = obj["base"] as Record<string, unknown> | undefined;
+        const nameArr = base?.["name"] as string[] | undefined;
+        if (Array.isArray(nameArr) && nameArr.length > 0) {
+          const first = nameArr[0]!;
+          if (!(first in PRIMITIVE_TYPE_MAP)) names.add(first);
+        }
+        // Fall through to recurse into type arguments
+      }
+
+      for (const propVal of Object.values(obj)) {
+        walk(propVal);
+      }
+    };
+
+    for (const decl of program.declarations) walk(decl);
+    return names;
+  }
+
+  /**
+   * Walk the entire program AST and collect all names that are LOCALLY DEFINED:
+   * top-level declaration names, non-star import aliases, function/lambda
+   * parameters, local val/var bindings, for-loop variables, catch-clause names,
+   * when-subject bindings, and type parameter names.
+   */
+  private gatherAllLocalBindings(program: AST.Program): Set<string> {
+    const names = new Set<string>();
+    const visited = new WeakSet<object>();
+
+    // Top-level declaration names
+    for (const decl of program.declarations) {
+      const d = decl as unknown as { name?: unknown };
+      if (typeof d.name === "string" && d.name) names.add(d.name);
+    }
+
+    // Non-star import aliases
+    for (const imp of program.imports) {
+      if (!imp.star) {
+        const name = imp.alias ?? imp.path[imp.path.length - 1];
+        if (name) names.add(name);
+      }
+    }
+
+    const walk = (val: unknown): void => {
+      if (!val || typeof val !== "object") return;
+      if (Array.isArray(val)) {
+        for (const item of val) walk(item);
+        return;
+      }
+      const obj = val as Record<string, unknown>;
+      if (visited.has(obj)) return;
+      visited.add(obj);
+
+      const kind = obj["kind"];
+
+      // Collect bound names at their declaration sites
+      if (kind === "PropertyDecl" || kind === "DestructuringDecl") {
+        if (typeof obj["name"] === "string") names.add(obj["name"] as string);
+        const nms = obj["names"] as unknown[] | undefined;
+        if (Array.isArray(nms)) {
+          for (const n of nms) { if (typeof n === "string") names.add(n); }
+        }
+      }
+      if (
+        kind === "FunDecl" || kind === "ExtensionFunDecl" ||
+        kind === "ComponentDecl" || kind === "ClassDecl" ||
+        kind === "DataClassDecl" || kind === "SealedClassDecl" ||
+        kind === "EnumClassDecl" || kind === "InterfaceDecl" ||
+        kind === "ObjectDecl" || kind === "TypeAliasDecl"
+      ) {
+        if (typeof obj["name"] === "string" && obj["name"]) names.add(obj["name"] as string);
+        // Type parameters
+        const typeParams = obj["typeParams"] as Array<{ name: string }> | undefined;
+        if (Array.isArray(typeParams)) {
+          for (const tp of typeParams) { if (tp.name) names.add(tp.name); }
+        }
+        // Function/method parameters
+        const params = obj["params"] as Array<{ name: string }> | undefined;
+        if (Array.isArray(params)) {
+          for (const p of params) { if (p.name) names.add(p.name); }
+        }
+      }
+      if (kind === "LambdaExpr") {
+        const params = obj["params"] as Array<{ name: string }> | undefined;
+        if (Array.isArray(params)) {
+          for (const p of params) { if (p.name) names.add(p.name); }
+        }
+      }
+      if (kind === "ForStmt") {
+        const binding = obj["binding"];
+        if (typeof binding === "string") {
+          names.add(binding);
+        } else if (binding && typeof binding === "object") {
+          const b = binding as Record<string, unknown>;
+          // TupleDestructure or MapDestructure
+          if (Array.isArray(b["names"])) {
+            for (const n of b["names"] as unknown[]) { if (typeof n === "string") names.add(n); }
+          }
+          if (typeof b["key"] === "string") names.add(b["key"] as string);
+          if (typeof b["value"] === "string") names.add(b["value"] as string);
+        }
+      }
+      if (kind === "TryCatchStmt") {
+        const catches = obj["catches"] as Array<{ name: string }> | undefined;
+        if (Array.isArray(catches)) {
+          for (const c of catches) { if (c.name) names.add(c.name); }
+        }
+      }
+      if (kind === "WhenStmt" || kind === "WhenExpr") {
+        const subject = obj["subject"] as Record<string, unknown> | undefined;
+        if (typeof subject?.["binding"] === "string") names.add(subject["binding"] as string);
+      }
+      if (kind === "SecondaryConstructor") {
+        const params = obj["params"] as Array<{ name: string }> | undefined;
+        if (Array.isArray(params)) {
+          for (const p of params) { if (p.name) names.add(p.name); }
+        }
+      }
+
+      for (const propVal of Object.values(obj)) {
+        walk(propVal);
+      }
+    };
+
+    for (const decl of program.declarations) walk(decl);
+    return names;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1815,6 +2047,46 @@ const GENERIC_TYPE_MAP: Record<string, string> = {
 };
 
 const PRIMITIVE_TYPES = new Set(Object.keys(PRIMITIVE_TYPE_MAP));
+
+// ---------------------------------------------------------------------------
+// Well-known JavaScript / TypeScript global names that must never be emitted
+// as named imports from a wildcard-imported package.
+// ---------------------------------------------------------------------------
+
+const JS_GLOBAL_NAMES = new Set([
+  // JS built-in constructors and objects
+  "Array", "Map", "Set", "Object", "String", "Number", "Boolean",
+  "Promise", "Error", "TypeError", "RangeError", "SyntaxError", "URIError",
+  "EvalError", "ReferenceError",
+  "console", "Math", "Date", "JSON", "RegExp", "Symbol", "BigInt",
+  "Proxy", "Reflect", "globalThis", "Atomics", "SharedArrayBuffer",
+  "ArrayBuffer", "DataView", "Int8Array", "Uint8Array", "Uint8ClampedArray",
+  "Int16Array", "Uint16Array", "Int32Array", "Uint32Array",
+  "Float32Array", "Float64Array", "BigInt64Array", "BigUint64Array",
+  // Global functions
+  "isNaN", "isFinite", "parseInt", "parseFloat", "eval",
+  "encodeURI", "decodeURI", "encodeURIComponent", "decodeURIComponent",
+  // Browser/Node globals
+  "setTimeout", "clearTimeout", "setInterval", "clearInterval",
+  "queueMicrotask", "requestAnimationFrame", "cancelAnimationFrame",
+  "fetch", "URL", "URLSearchParams", "AbortController", "AbortSignal",
+  "EventTarget", "Event", "CustomEvent", "FormData", "Headers",
+  "Request", "Response", "Blob", "File", "FileReader",
+  "Worker", "SharedWorker", "WebSocket",
+  "ReadableStream", "WritableStream", "TransformStream",
+  "document", "window", "navigator", "location", "history", "screen",
+  "performance", "crypto", "indexedDB", "localStorage", "sessionStorage",
+  "process", "Buffer", "global", "require", "module", "exports", "__dirname", "__filename",
+  // Special identifiers
+  "undefined", "null", "NaN", "Infinity",
+  "it", "this", "super", "arguments", "new", "class", "function",
+  // TypeScript primitive type names
+  "any", "unknown", "never", "void", "string", "number", "boolean", "bigint",
+  "object", "symbol",
+  // Jalvin type names that map to TS primitives (never need import)
+  "String", "Boolean", "Any", "Nothing", "Unit", "Char", "Byte", "Short",
+  "Float", "Double",
+]);
 
 // ---------------------------------------------------------------------------
 // Public helper

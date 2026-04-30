@@ -144,6 +144,7 @@ export function jalvin(opts: JalvinViteOptions = {}): any {
       const result = compile(code, id, {
         emitTypes: opts.emitTypes ?? false,
         runtimeImport: opts.runtimeImport ?? "@jalvin/runtime",
+        sourceRoot: viteConfig?.root ?? process.cwd(),
       });
 
       if (!result.ok) {
