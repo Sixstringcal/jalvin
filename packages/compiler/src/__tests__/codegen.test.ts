@@ -358,6 +358,44 @@ component fun Hr() {
   it("emits component function as React FC", () => {
     const code = gen(`component fun Button(label: String) { return (<button>{label}</button>) }`);
     expect(code).toContain("export function Button");
+    // Return type is no longer hardcoded to HTMLElement — TypeScript infers it
+    expect(code).not.toContain("HTMLElement");
+  });
+
+  it("does not emit ): HTMLElement in component fun signature", () => {
+    const code = gen(`component fun Foo() { return (<div />) }`);
+    expect(code).not.toContain("HTMLElement");
+  });
+});
+
+describe("Codegen — component fun implicit return", () => {
+  it("implicitly returns last expression in component body", () => {
+    const code = gen(`
+import @jalvin/ui.Column
+component fun MyComp() {
+  Column({})
+}`);
+    expect(code).toContain("return Column(");
+  });
+
+  it("does not wrap explicit return in another return", () => {
+    const code = gen(`
+import @jalvin/ui.Column
+component fun MyComp() {
+  return Column({})
+}`);
+    // Should not emit "return return ..."
+    expect(code).not.toContain("return return");
+  });
+
+  it("does not add implicit return when last statement is a val declaration", () => {
+    const code = gen(`
+import @jalvin/ui.Column
+component fun MyComp() {
+  val x = Column({})
+}`);
+    expect(code).not.toContain("return x");
+    expect(code).not.toContain("return val");
   });
 });
 

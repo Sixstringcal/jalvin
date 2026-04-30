@@ -415,11 +415,29 @@ export class CodeGenerator {
       ? `{ ${decl.params.map((p) => p.name + (p.defaultValue ? ` = ${this.emitExpr(p.defaultValue)}` : "")).join(", ")} }: ${decl.name}Props`
       : "";
 
-    this.w.writeIndentedLine(`${vis}function ${decl.name}(${propsParam}): HTMLElement {`);
+    this.w.writeIndentedLine(`${vis}function ${decl.name}(${propsParam}) {`);
     this.w.pushIndent();
-    this.emitBlock(decl.body);
+    this.emitComponentBlock(decl.body);
     this.w.popIndent();
     this.w.writeIndentedLine(`}`);
+  }
+
+  /**
+   * Emit the body of a `component fun` block.
+   * The last statement, if it is a plain expression, is implicitly returned
+   * (Kotlin-style implicit return of the last expression).
+   */
+  private emitComponentBlock(block: AST.Block): void {
+    const stmts = block.statements;
+    for (let i = 0; i < stmts.length; i++) {
+      const stmt = stmts[i]!;
+      if (i === stmts.length - 1 && stmt.kind === "ExprStmt") {
+        // Implicit return: last expression in a component block
+        this.w.writeIndentedLine(`return ${this.emitExpr(stmt.expr)};`);
+      } else {
+        this.emitStmt(stmt);
+      }
+    }
   }
 
   // ── regular class ──────────────────────────────────────────────────────────

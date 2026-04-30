@@ -1,6 +1,6 @@
 {
   "name": "@jalvin/cli",
-  "version": "2.0.7",
+  "version": "2.0.8",
   "description": "Jalvin language — command line interface",
   "bin": {
     "jalvin": "dist/cli.js"

@@ -1,4 +1,5 @@
-import { Modifier, applyModifier } from "./modifier.js";
+import React from "react";
+import { Modifier } from "./modifier.js";
 
 export type ButtonVariant = "filled" | "outlined" | "text" | "tonal";
 
@@ -15,17 +16,24 @@ export interface ButtonProps {
 /** Button — analogous to Compose's Button / OutlinedButton / TextButton. */
 export function Button(
   { text, innerHTML: html, onClick, modifier, enabled = true, type = "button" }: ButtonProps,
-  children?: HTMLElement[]
-): HTMLButtonElement {
-  const el = document.createElement("button");
-  el.type = type;
-  if (text !== undefined) el.textContent = text;
-  if (html !== undefined) el.innerHTML = html;
-  if (onClick && enabled) el.addEventListener("click", onClick);
-  if (!enabled) el.disabled = true;
-  if (modifier) applyModifier(el, modifier);
-  for (const child of children ?? []) el.appendChild(child);
-  return el;
+  children?: React.ReactNode[]
+): React.ReactElement {
+  const modProps = modifier?.toProps() ?? {};
+  const baseProps = {
+    type,
+    disabled: !enabled,
+    onClick: enabled ? onClick : undefined,
+    className: modProps.className,
+    style: modProps.style as React.CSSProperties,
+  };
+  if (html !== undefined) {
+    return React.createElement("button", {
+      ...baseProps,
+      dangerouslySetInnerHTML: { __html: html },
+    });
+  }
+  const childNodes: React.ReactNode[] = text !== undefined ? [text] : (children ?? []);
+  return React.createElement("button", baseProps, ...childNodes);
 }
 
 export interface IconButtonProps {
@@ -40,9 +48,22 @@ export interface IconButtonProps {
 /** Icon-only circular button. */
 export function IconButton(
   { innerHTML, onClick, modifier, enabled = true, type = "button", "aria-label": ariaLabel }: IconButtonProps,
-  children?: HTMLElement[]
-): HTMLButtonElement {
-  const el = Button({ innerHTML, onClick, modifier, enabled, type }, children);
-  if (ariaLabel) el.setAttribute("aria-label", ariaLabel);
-  return el;
+  children?: React.ReactNode[]
+): React.ReactElement {
+  const modProps = modifier?.toProps() ?? {};
+  const baseProps = {
+    type,
+    disabled: !enabled,
+    onClick: enabled ? onClick : undefined,
+    className: modProps.className,
+    style: modProps.style as React.CSSProperties,
+    "aria-label": ariaLabel,
+  };
+  if (innerHTML !== undefined) {
+    return React.createElement("button", {
+      ...baseProps,
+      dangerouslySetInnerHTML: { __html: innerHTML },
+    });
+  }
+  return React.createElement("button", baseProps, ...(children ?? []));
 }

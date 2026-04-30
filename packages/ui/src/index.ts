@@ -1,4 +1,4 @@
-// @jalvin/ui — Compose-style DOM component library (no React)
+// @jalvin/ui — Compose-style React component library
 //
 // Usage example (in a .jalvin file):
 //   import @jalvin/ui.Column
@@ -19,3 +19,23 @@ export type { ColumnProps, RowProps, BoxProps, Alignment, Arrangement } from "./
 // Buttons
 export { Button, IconButton } from "./button.js";
 export type { ButtonProps, ButtonVariant, IconButtonProps } from "./button.js";
+
+// Text
+export { Text } from "./text.js";
+export type { TextProps } from "./text.js";
+
+// Input
+export { Input } from "./input.js";
+export type { InputProps } from "./input.js";
+
+// Image
+export { Image, AsyncImage } from "./image.js";
+export type { ImageProps, AsyncImageProps } from "./image.js";
+
+// Spacer / Divider
+export { Spacer, Divider } from "./spacer.js";
+export type { SpacerProps, DividerProps } from "./spacer.js";
+
+// Surface / Scaffold
+export { Card, Scaffold, TopBar } from "./surface.js";
+export type { CardProps, ScaffoldProps, TopBarProps } from "./surface.js";
