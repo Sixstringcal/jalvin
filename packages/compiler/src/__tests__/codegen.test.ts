@@ -1,4 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { compile } from "../../dist/index.js";
 
 function gen(src: string): string {
@@ -168,6 +171,35 @@ describe("Codegen — imports", () => {
   it("emits nested local package import with symbol as filename", () => {
     const code = gen(`import com.example.ui.Button`);
     expect(code).toContain(`import { Button } from "com/example/ui/Button"`);
+  });
+
+  it("stops at existing file when preceding path resolves to a .ts file (multi-symbol module)", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jalvin-test-"));
+    try {
+      // Create src/models/css.ts to simulate a multi-symbol file
+      fs.mkdirSync(path.join(tmpDir, "src", "models"), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, "src", "models", "css.ts"), "export class Css {}");
+
+      const result = compile(`import src.models.css.Css\nval x = 1`, "<test>", { sourceRoot: tmpDir });
+      expect(result.code).toContain(`import { Css } from "src/models/css"`);
+      expect(result.code).not.toContain(`src/models/css/Css`);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("stops at existing .jalvin file when preceding path resolves to a .jalvin file", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jalvin-test-"));
+    try {
+      fs.mkdirSync(path.join(tmpDir, "src", "models"), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, "src", "models", "types.jalvin"), "class Point(val x: Int, val y: Int)");
+
+      const result = compile(`import src.models.types.Point\nval x = 1`, "<test>", { sourceRoot: tmpDir });
+      expect(result.code).toContain(`import { Point } from "src/models/types"`);
+      expect(result.code).not.toContain(`src/models/types/Point`);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
 

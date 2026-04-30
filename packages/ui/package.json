@@ -1,6 +1,6 @@
 {
   "name": "@jalvin/ui",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "description": "Jalvin UI — Compose-style component library (Column, Row, Box, Button, Text, …)",
   "type": "module",
   "main": "dist/index.js",

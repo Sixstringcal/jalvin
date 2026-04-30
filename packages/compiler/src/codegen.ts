@@ -14,6 +14,8 @@
 //   • StateFlow / ViewModel   → @jalvin/runtime types
 // ─────────────────────────────────────────────────────────────────────────────
 
+import * as fs from "node:fs";
+import * as nodePath from "node:path";
 import * as AST from "./ast.js";
 import { JType } from "./typechecker.js";
 
@@ -73,6 +75,14 @@ export interface CodegenOptions {
   readonly emitTypes: boolean;
   /** Path to import from for the Jalvin runtime */
   readonly runtimeImport: string;
+  /**
+   * Project root directory used to resolve local import paths.
+   * When set, the emitter checks whether the preceding path segments of a
+   * local import (e.g. `src/models/css`) resolve to an existing file before
+   * deciding whether to append the symbol name to the module specifier.
+   * Defaults to `process.cwd()` at emit time when not provided.
+   */
+  readonly sourceRoot?: string;
 }
 
 export const DEFAULT_CODEGEN_OPTIONS: CodegenOptions = {
@@ -184,25 +194,46 @@ export class CodeGenerator {
   }
 
   private emitHeader(program: AST.Program): void {
+    const sourceRoot = this.opts.sourceRoot ?? process.cwd();
     // Re-emit user imports as ES imports
     for (const imp of program.imports) {
       // Build module specifier.
-      // For scoped packages (@org/pkg.Symbol), the symbol is an export from the
-      // package, so strip the last segment: `import { Column } from "@jalvin/ui"`
-      // For local imports (a.b.C), the symbol IS the filename (Kotlin convention),
-      // so include the full path: `import { Rotation } from "src/models/Rotation"`
-      // e.g. import @jalvin/ui.Column       → `import { Column } from "@jalvin/ui"`
-      // e.g. import @jalvin/runtime.*       → `import * as runtime from "@jalvin/runtime"`
-      // e.g. import src.models.Rotation     → `import { Rotation } from "src/models/Rotation"`
+      //
+      // Scoped packages (@org/pkg.Symbol): symbol is an export from the package,
+      // strip the last segment.
+      //   import @jalvin/ui.Column       → import { Column } from "@jalvin/ui"
+      //   import @jalvin/runtime.*       → import * as runtime from "@jalvin/runtime"
+      //
+      // Local imports (a.b.C): check whether the preceding segments already
+      // resolve to a file on disk.
+      //   import src.models.Rotation     → src/models/Rotation.ts does NOT exist
+      //                                    → import { Rotation } from "src/models/Rotation"
+      //   import src.models.css.Css      → src/models/css.ts DOES exist
+      //                                    → import { Css } from "src/models/css"
       const isScoped = imp.path[0]!.startsWith("@");
-      const moduleParts = imp.star
-        ? imp.path
-        : isScoped
-          ? imp.path.slice(0, -1)
-          : imp.path;
-      const moduleSpecifier = isScoped
-        ? moduleParts[0] + "/" + moduleParts.slice(1).join("/")
-        : moduleParts.join("/");
+
+      let moduleSpecifier: string;
+      if (imp.star) {
+        // Star import — the entire path is the module.
+        moduleSpecifier = isScoped
+          ? imp.path[0] + "/" + imp.path.slice(1).join("/")
+          : imp.path.join("/");
+      } else if (isScoped) {
+        // @org/pkg.Symbol → strip symbol from path.
+        const moduleParts = imp.path.slice(0, -1);
+        moduleSpecifier = moduleParts[0] + "/" + moduleParts.slice(1).join("/");
+      } else {
+        // Local import: check if the preceding segments resolve to a file.
+        const precedingParts = imp.path.slice(0, -1);
+        const precedingRelPath = precedingParts.join("/");
+        const fileExts = [".ts", ".tsx", ".jalvin"];
+        const precedingIsFile = fileExts.some((ext) =>
+          fs.existsSync(nodePath.join(sourceRoot, precedingRelPath + ext))
+        );
+        moduleSpecifier = precedingIsFile
+          ? precedingRelPath          // src.models.css.Css → "src/models/css"
+          : imp.path.join("/");       // src.models.Rotation → "src/models/Rotation"
+      }
 
       if (imp.star) {
         this.w.writeIndentedLine(`import * as ${imp.path[imp.path.length - 1]!} from "${moduleSpecifier}";`);
