@@ -159,6 +159,16 @@ describe("Codegen — imports", () => {
     const code = gen(`import @jalvin/runtime.Bibi as Http`);
     expect(code).toContain("import { Bibi as Http }");
   });
+
+  it("emits local package import with symbol as filename (Kotlin convention)", () => {
+    const code = gen(`import src.models.Rotation`);
+    expect(code).toContain(`import { Rotation } from "src/models/Rotation"`);
+  });
+
+  it("emits nested local package import with symbol as filename", () => {
+    const code = gen(`import com.example.ui.Button`);
+    expect(code).toContain(`import { Button } from "com/example/ui/Button"`);
+  });
 });
 
 describe("Codegen — JSX", () => {

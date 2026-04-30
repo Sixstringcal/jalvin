@@ -186,12 +186,21 @@ export class CodeGenerator {
   private emitHeader(program: AST.Program): void {
     // Re-emit user imports as ES imports
     for (const imp of program.imports) {
-      // Build module specifier: for named imports the last path component is the
-      // exported symbol name (not a subpath), so exclude it from the module path.
-      // e.g. import @jalvin/ui.Column → `import { Column } from "@jalvin/ui"`
-      // e.g. import @jalvin/runtime.* → `import * as runtime from "@jalvin/runtime"`
-      const moduleParts = imp.star ? imp.path : imp.path.slice(0, -1);
-      const moduleSpecifier = moduleParts[0]!.startsWith("@")
+      // Build module specifier.
+      // For scoped packages (@org/pkg.Symbol), the symbol is an export from the
+      // package, so strip the last segment: `import { Column } from "@jalvin/ui"`
+      // For local imports (a.b.C), the symbol IS the filename (Kotlin convention),
+      // so include the full path: `import { Rotation } from "src/models/Rotation"`
+      // e.g. import @jalvin/ui.Column       → `import { Column } from "@jalvin/ui"`
+      // e.g. import @jalvin/runtime.*       → `import * as runtime from "@jalvin/runtime"`
+      // e.g. import src.models.Rotation     → `import { Rotation } from "src/models/Rotation"`
+      const isScoped = imp.path[0]!.startsWith("@");
+      const moduleParts = imp.star
+        ? imp.path
+        : isScoped
+          ? imp.path.slice(0, -1)
+          : imp.path;
+      const moduleSpecifier = isScoped
         ? moduleParts[0] + "/" + moduleParts.slice(1).join("/")
         : moduleParts.join("/");
 
