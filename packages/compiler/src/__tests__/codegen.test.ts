@@ -196,6 +196,50 @@ component fun Hr() {
   });
 });
 
+describe("Codegen — UI primitives (no new keyword)", () => {
+  it("emits named @jalvin/ui imports as plain function calls, not constructors", () => {
+    const code = gen(`
+import @jalvin/ui.Row
+import @jalvin/ui.Button
+import @jalvin/ui.Modifier
+component fun MyComp() {
+  return Row(modifier = Modifier.className("container")) {
+    Button(text = "Click")
+  }
+}`);
+    expect(code).not.toContain("new Row");
+    expect(code).not.toContain("new Button");
+    expect(code).toContain("Row({");
+    expect(code).toContain("Button({");
+  });
+
+  it("emits star @jalvin/ui import primitives as plain function calls, not constructors", () => {
+    const code = gen(`
+import @jalvin/ui.*
+component fun MyComp() {
+  return Row(modifier = Modifier.className("container")) {
+    Button(text = "Click")
+  }
+}`);
+    expect(code).not.toContain("new Row");
+    expect(code).not.toContain("new Button");
+    expect(code).toContain("Row({");
+    expect(code).toContain("Button({");
+  });
+
+  it("still emits new for locally declared classes with @jalvin/ui imports", () => {
+    const code = gen(`
+import @jalvin/ui.Row
+class Cart(val items: Int) { }
+component fun MyComp() {
+  val c = Cart(3)
+  return Row { }
+}`);
+    expect(code).toContain("new Cart");
+    expect(code).not.toContain("new Row");
+  });
+});
+
 describe("Codegen — string templates", () => {
   it("emits template literal for interpolated string", () => {
     const code = gen(`val greeting = "Hello, $name!"`);

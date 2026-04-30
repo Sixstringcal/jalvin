@@ -96,6 +96,8 @@ export class CodeGenerator {
   private runtimeSymbolsNeeded = new Set<string>();
   /** Names of component functions — used to detect Compose-style calls and emit them as JSX */
   private componentNames = new Set<string>();
+  /** True when the program contains `import @jalvin/ui.*` — used to detect UI primitive calls */
+  private hasUiStarImport = false;
   /** Operator overload resolutions from the type checker */
   private operatorOverloadMap = new Map<AST.BinaryExpr, string>();
   /** Type map from the type checker */
@@ -134,10 +136,15 @@ export class CodeGenerator {
         }
       }
     }
+    this.hasUiStarImport = false;
     for (const imp of program.imports) {
       // Named imports from @jalvin/ui are component functions
       if (imp.path[0] === "@jalvin" && imp.path[1] === "ui" && !imp.star) {
         this.componentNames.add(imp.path[imp.path.length - 1]!);
+      }
+      // Star import from @jalvin/ui — UI primitives won't be in componentNames
+      if (imp.path[0] === "@jalvin" && imp.path[1] === "ui" && imp.star) {
+        this.hasUiStarImport = true;
       }
     }
 
@@ -1384,13 +1391,17 @@ export class CodeGenerator {
       return `(${this.emitLambdaExpr(expr.trailingLambda)})()`;
     }
 
-    // Compose-style component call: Column(modifier = ...) { ... } → Column({ modifier: ... }, [children])
-    if (expr.callee.kind === "NameExpr" && this.componentNames.has(expr.callee.name)) {
-      return this.emitComposeCallAsDom(expr);
-    }
-
     // Handle named arguments by reordering them to match positional parameters
     const calleeType = this.typeMap.get(expr.callee);
+
+    // Compose-style component call: Column(modifier = ...) { ... } → Column({ modifier: ... }, [children])
+    // Also catches star-imported @jalvin/ui primitives (Row, Button, etc.) whose type is T_UNKNOWN
+    if (expr.callee.kind === "NameExpr" && (
+      this.componentNames.has(expr.callee.name) ||
+      (this.hasUiStarImport && (!calleeType || calleeType.tag === "unknown") && /^[A-Z]/.test(expr.callee.name))
+    )) {
+      return this.emitComposeCallAsDom(expr);
+    }
     let finalArgs: string[] = [];
 
     if (calleeType && calleeType.tag === "func" && calleeType.paramNames) {
@@ -1455,6 +1466,8 @@ export class CodeGenerator {
    *  In Jalvin, class names always start with an uppercase letter. */
   private isConstructorCall(calleeExpr: AST.Expr): boolean {
     if (calleeExpr.kind === "NameExpr") {
+      // Names in componentNames are factory functions (UI primitives, components), not constructors
+      if (this.componentNames.has(calleeExpr.name)) return false;
       // Class names start with uppercase; function names start with lowercase
       return /^[A-Z]/.test(calleeExpr.name);
     }
