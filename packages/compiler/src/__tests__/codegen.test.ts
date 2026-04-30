@@ -455,3 +455,88 @@ describe("Codegen — string templates", () => {
     expect(code).toContain("a + b");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Method chaining — generated output
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Codegen — method chaining", () => {
+  it("emits a single-line two-link chain correctly", () => {
+    const code = gen(
+      `fun test() { val m = Modifier.className("foo").marginRight("10px") }`
+    );
+    expect(code).toContain(".className(");
+    expect(code).toContain(".marginRight(");
+  });
+
+  it("emits a multi-line chain (dot on new line) identically to single-line", () => {
+    const singleLine = gen(
+      `fun test() { val m = Modifier.className("foo").marginRight("10px") }`
+    );
+    const multiLine = gen(
+`fun test() {
+  val m = Modifier.className("foo")
+    .marginRight("10px")
+}`
+    );
+    // Both should contain the same method calls
+    expect(multiLine).toContain(".className(");
+    expect(multiLine).toContain(".marginRight(");
+    // The generated output structure should be equivalent
+    const extractCalls = (c: string) =>
+      c.match(/\.(className|marginRight)\(/g) ?? [];
+    expect(extractCalls(singleLine)).toEqual(extractCalls(multiLine));
+  });
+
+  it("emits a three-link chain spread over multiple lines", () => {
+    const code = gen(
+`fun test() {
+  val m = Modifier
+    .className("foo")
+    .marginRight("10px")
+    .paddingLeft("5px")
+}`
+    );
+    expect(code).toContain(".className(");
+    expect(code).toContain(".marginRight(");
+    expect(code).toContain(".paddingLeft(");
+  });
+
+  it("emits method chain used as a named argument value", () => {
+    const code = gen(
+`fun test() {
+  Button(
+    modifier = Modifier.className("foo")
+      .marginRight("10px"),
+    label = "ok"
+  )
+}`
+    );
+    expect(code).toContain(".className(");
+    expect(code).toContain(".marginRight(");
+  });
+
+  it("emits method chain used as a positional argument value", () => {
+    const code = gen(
+`fun test() {
+  applyModifier(
+    Modifier.className("foo")
+      .marginRight("10px")
+  )
+}`
+    );
+    expect(code).toContain(".className(");
+    expect(code).toContain(".marginRight(");
+  });
+
+  it("emits a safe-call chain (\\`?.\\`) on a new line without errors", () => {
+    const code = gen(
+`fun test() {
+  val result = foo()
+    ?.bar()
+    ?.baz
+}`
+    );
+    expect(code).toContain("?.");
+  });
+});

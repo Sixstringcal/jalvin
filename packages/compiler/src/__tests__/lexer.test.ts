@@ -186,6 +186,77 @@ describe("Lexer — automatic semicolon insertion", () => {
   });
 });
 
+describe("Lexer — ASI suppressed before dot continuation", () => {
+  it("does NOT insert semicolon between ) and . on next line", () => {
+    const t = tokens("foo()\n.bar");
+    const kinds = t.map((x) => x.kind);
+    expect(kinds).not.toContain(TK.Semicolon);
+  });
+
+  it("does NOT insert semicolon between identifier and . on next line", () => {
+    const t = tokens("foo\n.bar");
+    const kinds = t.map((x) => x.kind);
+    expect(kinds).not.toContain(TK.Semicolon);
+  });
+
+  it("does NOT insert semicolon between } and . on next line", () => {
+    const t = tokens("{ }\n.bar");
+    const kinds = t.map((x) => x.kind);
+    expect(kinds).not.toContain(TK.Semicolon);
+  });
+
+  it("does NOT insert semicolon between ] and . on next line", () => {
+    const t = tokens("[1]\n.size");
+    const kinds = t.map((x) => x.kind);
+    expect(kinds).not.toContain(TK.Semicolon);
+  });
+
+  it("does NOT insert semicolon between ) and ?. on next line (safe call chain)", () => {
+    const t = tokens("foo()\n?.bar");
+    const kinds = t.map((x) => x.kind);
+    expect(kinds).not.toContain(TK.Semicolon);
+  });
+
+  it("does NOT insert semicolon before . when separated by multiple blank lines", () => {
+    const t = tokens("foo()\n\n\n.bar");
+    const kinds = t.map((x) => x.kind);
+    expect(kinds).not.toContain(TK.Semicolon);
+  });
+
+  it("does NOT insert semicolon before . when continuation line has leading whitespace", () => {
+    const t = tokens("foo()\n    .bar");
+    const kinds = t.map((x) => x.kind);
+    expect(kinds).not.toContain(TK.Semicolon);
+  });
+
+  it("does NOT insert semicolon before . when a line comment precedes it on the same continuation line", () => {
+    // The comment on the next line should not block chain detection
+    const t = tokens("foo()\n// comment\n.bar");
+    const kinds = t.map((x) => x.kind);
+    expect(kinds).not.toContain(TK.Semicolon);
+  });
+
+  it("DOES insert semicolon between ) and .. (range operator) on next line", () => {
+    // '..' is NOT a dot continuation — it's the range operator
+    const t = tokens("x\n..9");
+    const kinds = t.map((x) => x.kind);
+    expect(kinds).toContain(TK.Semicolon);
+    expect(kinds).toContain(TK.DotDot);
+  });
+
+  it("DOES insert semicolon between ) and a non-dot token on next line", () => {
+    const t = tokens("foo()\nbar");
+    const kinds = t.map((x) => x.kind);
+    expect(kinds).toContain(TK.Semicolon);
+  });
+
+  it("DOES insert semicolon between string literal and identifier on next line", () => {
+    const t = tokens('"hello"\nfoo');
+    const kinds = t.map((x) => x.kind);
+    expect(kinds).toContain(TK.Semicolon);
+  });
+});
+
 describe("Lexer — errors", () => {
   it("reports E0001 for unterminated string", () => {
     const diag = new DiagnosticBag();

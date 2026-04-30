@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { lex } from "../../dist/lexer.js";
 import { parse } from "../../dist/parser.js";
 import { DiagnosticBag } from "../../dist/diagnostics.js";
-import type { Program, FunDecl, ClassDecl, DataClassDecl } from "../../dist/ast.js";
+import type { Program, FunDecl, ClassDecl, DataClassDecl, Block, PropertyDecl, CallExpr, MemberExpr, NameExpr } from "../../dist/ast.js";
 
 function parseSource(src: string): { program: Program; diag: DiagnosticBag } {
   const diag = new DiagnosticBag();
@@ -202,5 +202,179 @@ describe("Parser — imports", () => {
     const { program, diag } = parseSource(`import @jalvin/runtime.Bibi as Http`);
     expect(diag.hasErrors).toBe(false);
     expect(program.imports[0]?.alias).toBe("Http");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Method chaining — same-line and multi-line
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Parser — method chaining in call arguments", () => {
+  it("parses a two-link method chain on a single line as a positional argument", () => {
+    const { diag } = parseSource(
+      `fun test() { foo(Modifier.className("x").marginRight("10px")) }`
+    );
+    expect(diag.hasErrors).toBe(false);
+  });
+
+  it("parses a named argument whose value is a single-line method chain", () => {
+    const { diag } = parseSource(
+      `fun test() { Button(modifier = Modifier.className("x").marginRight("10px")) }`
+    );
+    expect(diag.hasErrors).toBe(false);
+  });
+
+  it("parses a three-link chain on a single line", () => {
+    const { diag } = parseSource(
+      `fun test() { foo(Modifier.a("1").b("2").c("3")) }`
+    );
+    expect(diag.hasErrors).toBe(false);
+  });
+
+  it("parses a two-link chain where the dot continuation is on the next line (multi-line named arg)", () => {
+    const { diag } = parseSource(
+`fun test() {
+  Button(
+    modifier = Modifier.className("foo")
+      .marginRight("10px"),
+    onClick = {}
+  )
+}`
+    );
+    expect(diag.hasErrors).toBe(false);
+  });
+
+  it("parses a positional argument chain with dot on the next line", () => {
+    const { diag } = parseSource(
+`fun test() {
+  foo(
+    Modifier.className("foo")
+      .marginRight("10px")
+  )
+}`
+    );
+    expect(diag.hasErrors).toBe(false);
+  });
+
+  it("parses a three-link chain spread over multiple lines", () => {
+    const { diag } = parseSource(
+`fun test() {
+  foo(
+    Modifier
+      .a("1")
+      .b("2")
+      .c("3")
+  )
+}`
+    );
+    expect(diag.hasErrors).toBe(false);
+  });
+
+  it("parses multi-line chain as a named argument alongside other named arguments", () => {
+    const { diag } = parseSource(
+`fun test() {
+  Button(
+    modifier = Modifier.className("foo")
+      .marginRight("10px")
+      .paddingLeft("5px"),
+    label = "Click me",
+    onClick = {}
+  )
+}`
+    );
+    expect(diag.hasErrors).toBe(false);
+  });
+
+  it("parses a safe-call chain (\\`?.\\`) with dot on the next line", () => {
+    const { diag } = parseSource(
+`fun test() {
+  foo(
+    bar?.baz()
+      ?.qux()
+  )
+}`
+    );
+    expect(diag.hasErrors).toBe(false);
+  });
+
+  it("parses chain on new line in an expression-body function", () => {
+    const { diag } = parseSource(
+`fun buildMod() = Modifier.className("foo")
+  .marginRight("10px")`
+    );
+    expect(diag.hasErrors).toBe(false);
+  });
+
+  it("parses chain on new line in a variable initializer", () => {
+    const { diag } = parseSource(
+`fun test() {
+  val m = Modifier.className("foo")
+    .marginRight("10px")
+}`
+    );
+    expect(diag.hasErrors).toBe(false);
+  });
+
+  it("parses chain with trailing lambda that itself follows a dot-continuation", () => {
+    const { diag } = parseSource(
+`fun test() {
+  list
+    .filter { it > 0 }
+    .map { it * 2 }
+}`
+    );
+    expect(diag.hasErrors).toBe(false);
+  });
+});
+
+describe("Parser — method chaining AST shape", () => {
+  it("builds a CallExpr whose callee is a MemberExpr for a two-link chain", () => {
+    const { program, diag } = parseSource(
+      `fun test() { val m = Modifier.className("foo").marginRight("10px") }`
+    );
+    expect(diag.hasErrors).toBe(false);
+    // Navigate: FunDecl → body(Block) → first stmt (PropertyDecl) → initializer
+    const fn = program.declarations[0] as FunDecl;
+    const body = fn.body as Block;
+    const prop = body.statements[0] as PropertyDecl;
+    const init = prop.initializer!;
+    expect(init.kind).toBe("CallExpr");
+    const callExpr = init as CallExpr;
+    expect(callExpr.callee.kind).toBe("MemberExpr");
+    const callee = callExpr.callee as MemberExpr;
+    expect(callee.member).toBe("marginRight");
+    expect(callee.target.kind).toBe("CallExpr");
+  });
+
+  it("builds the same AST shape whether chain is on one line or split across lines", () => {
+    const oneLine = parseSource(
+      `fun test() { val m = Modifier.className("foo").marginRight("10px") }`
+    );
+    const multiLine = parseSource(
+`fun test() {
+  val m = Modifier.className("foo")
+    .marginRight("10px")
+}`
+    );
+    expect(oneLine.diag.hasErrors).toBe(false);
+    expect(multiLine.diag.hasErrors).toBe(false);
+
+    type AnyExpr = { kind: string; callee?: AnyExpr; target?: AnyExpr; member?: string; name?: string };
+
+    const shape = (e: AnyExpr): string => {
+      if (e.kind === "CallExpr") return `Call(${shape(e.callee!)})`;
+      if (e.kind === "MemberExpr") return `Member(${shape(e.target!)}, ${e.member})`;
+      if (e.kind === "NameExpr") return e.name!;
+      return e.kind;
+    };
+
+    const extractShape = (prog: Program): string => {
+      const fn = prog.declarations[0] as FunDecl;
+      const body = fn.body as Block;
+      const prop = body.statements[0] as PropertyDecl;
+      return shape(prop.initializer! as AnyExpr);
+    };
+
+    expect(extractShape(oneLine.program)).toBe(extractShape(multiLine.program));
   });
 });

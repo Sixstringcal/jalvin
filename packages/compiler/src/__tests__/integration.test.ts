@@ -113,3 +113,118 @@ describe("Integration — round-trip correctness", () => {
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Method chaining in arguments — end-to-end
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Integration — method chaining in call arguments", () => {
+  it("compiles single-line method chain in named argument without errors", () => {
+    const result = compile(
+      `import @jalvin/ui.*\nfun test() { Button(modifier = Modifier.className("foo").marginRight("10px")) }`,
+      "<test>"
+    );
+    const errs = result.diagnostics.items.filter((d) => d.severity === "error");
+    expect(errs).toHaveLength(0);
+    expect(result.code).toContain(".className(");
+    expect(result.code).toContain(".marginRight(");
+  });
+
+  it("compiles the exact issue example: multi-line chain as named argument", () => {
+    const src = `import @jalvin/ui.*
+fun test() {
+  Button(
+    modifier = Modifier.className("foo").marginRight("10px"),
+    onClick = {}
+  )
+}`;
+    const result = compile(src, "<test>");
+    const errs = result.diagnostics.items.filter((d) => d.severity === "error");
+    expect(errs).toHaveLength(0);
+    expect(result.code).toContain(".className(");
+    expect(result.code).toContain(".marginRight(");
+  });
+
+  it("compiles multi-line chain with dot on the next line (the original failing case)", () => {
+    const src = `import @jalvin/ui.*
+fun test() {
+  Button(
+    modifier = Modifier.className("foo")
+      .marginRight("10px"),
+    onClick = {}
+  )
+}`;
+    const result = compile(src, "<test>");
+    const errs = result.diagnostics.items.filter((d) => d.severity === "error");
+    expect(errs).toHaveLength(0);
+    expect(result.code).toContain(".className(");
+    expect(result.code).toContain(".marginRight(");
+  });
+
+  it("compiles a three-link modifier chain across multiple lines", () => {
+    const src = `import @jalvin/ui.*
+fun test() {
+  Button(
+    modifier = Modifier
+      .className("container")
+      .marginRight("10px")
+      .paddingLeft("5px"),
+    label = "Click"
+  )
+}`;
+    const result = compile(src, "<test>");
+    const errs = result.diagnostics.items.filter((d) => d.severity === "error");
+    expect(errs).toHaveLength(0);
+    expect(result.code).toContain(".className(");
+    expect(result.code).toContain(".marginRight(");
+    expect(result.code).toContain(".paddingLeft(");
+  });
+
+  it("compiles a chain-in-variable-initializer with dot on new line", () => {
+    const src = `import @jalvin/ui.*
+fun buildModifier(): Any {
+  val m = Modifier.className("foo")
+    .marginRight("10px")
+    .paddingTop("8px")
+  return m
+}`;
+    const result = compile(src, "<test>");
+    const errs = result.diagnostics.items.filter((d) => d.severity === "error");
+    expect(errs).toHaveLength(0);
+  });
+
+  it("compiles a safe-call chain with ?. on new line (no parse errors)", () => {
+    // Note: this test checks for absence of PARSER errors (E010x).
+    // Type-checker errors about inferred types of safe-call chains are a separate concern.
+    const src = `
+fun test(s: String?) {
+  val n = s?.length
+    ?.toString()
+}`;
+    const result = compile(src, "<test>");
+    // Only look for lexer (E000x) and parser (E010x) errors — the chain must parse correctly.
+    const parseErrs = result.diagnostics.items.filter(
+      (d) => d.severity === "error" && (d.code.startsWith("E000") || d.code.startsWith("E010"))
+    );
+    expect(parseErrs).toHaveLength(0);
+  });
+
+  it("compiles chaining on new line in expression-body function", () => {
+    const src = `import @jalvin/ui.*\nfun buildMod() = Modifier.className("foo")\n  .marginRight("10px")`;
+    const result = compile(src, "<test>");
+    const errs = result.diagnostics.items.filter((d) => d.severity === "error");
+    expect(errs).toHaveLength(0);
+    expect(result.code).toContain(".marginRight(");
+  });
+
+  it("still inserts semicolons correctly for non-chain line continuations", () => {
+    // val x = 5 followed by val y = 10 — two distinct statements; no chain
+    const src = `fun test() {\n  val x = 5\n  val y = 10\n}`;
+    const result = compile(src, "<test>");
+    const errs = result.diagnostics.items.filter((d) => d.severity === "error");
+    expect(errs).toHaveLength(0);
+    // Both declarations should appear in the output
+    expect(result.code).toContain("const x");
+    expect(result.code).toContain("const y");
+  });
+});

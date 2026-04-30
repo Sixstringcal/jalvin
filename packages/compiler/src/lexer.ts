@@ -293,7 +293,7 @@ export class Lexer {
 
       // ── Newline → potential semicolon ────────────────────────────────────
       if (ch === "\n") {
-        if (prevKind !== null && ASI_SET.has(prevKind)) {
+        if (prevKind !== null && ASI_SET.has(prevKind) && !this.peekIsDotContinuation()) {
           const span = this.spanAt(this.pos, this.pos);
           tokens.push({ kind: TokenKind.Semicolon, span, text: "\n" });
           prevKind = TokenKind.Semicolon;
@@ -760,6 +760,51 @@ export class Lexer {
   }
 
   // ── Utilities ──────────────────────────────────────────────────────────────
+
+  /**
+   * Returns true when the next meaningful token after the current newline is a
+   * dot-continuation (`.member` or `?.member`), in which case ASI must NOT be
+   * inserted so that multi-line method chains work correctly.
+   *
+   * Scans forward from `this.pos + 1` skipping whitespace and comments.
+   * `.` followed by another `.` (range `..`) does NOT count as continuation.
+   */
+  private peekIsDotContinuation(): boolean {
+    let i = this.pos + 1; // start after current '\n'
+    while (i < this.src.length) {
+      const c = this.src[i]!;
+      // Skip horizontal whitespace and additional newlines
+      if (c === " " || c === "\t" || c === "\r" || c === "\n") {
+        i++;
+        continue;
+      }
+      // Skip line comment
+      if (c === "/" && this.src[i + 1] === "/") {
+        while (i < this.src.length && this.src[i] !== "\n") i++;
+        continue;
+      }
+      // Skip block comment
+      if (c === "/" && this.src[i + 1] === "*") {
+        i += 2;
+        while (i < this.src.length - 1) {
+          if (this.src[i] === "*" && this.src[i + 1] === "/") { i += 2; break; }
+          i++;
+        }
+        continue;
+      }
+      // Single '.' that is NOT part of '..' (range) is a chain continuation
+      if (c === ".") {
+        return this.src[i + 1] !== ".";
+      }
+      // '?.' is a safe-call chain continuation
+      if (c === "?" && this.src[i + 1] === ".") {
+        return true;
+      }
+      // Any other character — not a chain continuation
+      return false;
+    }
+    return false;
+  }
 
   private advance(): void {
     if (this.src[this.pos] === "\n") {
