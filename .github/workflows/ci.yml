@@ -36,9 +36,10 @@ jobs:
       - name: Build all packages
         run: pnpm --filter @jalvin/compiler --filter @jalvin/runtime --filter @jalvin/ui --filter @jalvin/vite-plugin --filter @jalvin/webpack-plugin --filter @jalvin/cli build
 
-      - name: Run tests
-        run: |
-          cd packages/compiler
-          NODE_OPTIONS=--max-old-space-size=8192 pnpm test
-          cd ../runtime
-          pnpm test
+      - name: Test — compiler
+        run: pnpm --filter @jalvin/compiler test
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+
+      - name: Test — runtime stdlib
+        run: pnpm --filter @jalvin/runtime test
