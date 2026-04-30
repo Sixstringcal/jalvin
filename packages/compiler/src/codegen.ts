@@ -437,20 +437,96 @@ export class CodeGenerator {
 
   /**
    * Emit the body of a `component fun` block.
-   * The last statement, if it is a plain expression, is implicitly returned
-   * (Kotlin-style implicit return of the last expression).
+   * The last statement is emitted in tail position — if it is an expression,
+   * an if/else chain, or a when block, the innermost UI call is implicitly
+   * returned (Kotlin-style implicit return of the last expression).
    */
   private emitComponentBlock(block: AST.Block): void {
     const stmts = block.statements;
     for (let i = 0; i < stmts.length; i++) {
       const stmt = stmts[i]!;
-      if (i === stmts.length - 1 && stmt.kind === "ExprStmt") {
-        // Implicit return: last expression in a component block
-        this.w.writeIndentedLine(`return ${this.emitExpr(stmt.expr)};`);
+      if (i === stmts.length - 1) {
+        this.emitTailStmt(stmt);
       } else {
         this.emitStmt(stmt);
       }
     }
+  }
+
+  /** Emit a statement in tail position, adding implicit return where applicable. */
+  private emitTailStmt(stmt: AST.Stmt): void {
+    if (stmt.kind === "ExprStmt") {
+      // Implicit return: last expression in a component block
+      this.w.writeIndentedLine(`return ${this.emitExpr(stmt.expr)};`);
+    } else if (stmt.kind === "IfStmt") {
+      this.emitIfStmtWithTailReturn(stmt);
+    } else if (stmt.kind === "WhenStmt") {
+      this.emitWhenStmtWithTailReturn(stmt);
+    } else {
+      this.emitStmt(stmt);
+    }
+  }
+
+  /** Emit a block in tail position, treating its last statement as a tail expression. */
+  private emitTailBlock(block: AST.Block): void {
+    const stmts = block.statements;
+    for (let i = 0; i < stmts.length; i++) {
+      const stmt = stmts[i]!;
+      if (i === stmts.length - 1) {
+        this.emitTailStmt(stmt);
+      } else {
+        this.emitStmt(stmt);
+      }
+    }
+  }
+
+  /** Like emitIfStmt but with tail-return applied recursively to each branch body. */
+  private emitIfStmtWithTailReturn(stmt: AST.IfStmt): void {
+    this.w.writeIndentedLine(`if (${this.emitExpr(stmt.condition)}) {`);
+    this.w.pushIndent();
+    this.emitTailBlock(stmt.then);
+    this.w.popIndent();
+    if (stmt.else) {
+      if (stmt.else.kind === "IfStmt") {
+        this.w.writeIndented(`} else `);
+        this.emitIfStmtWithTailReturn(stmt.else);
+      } else {
+        this.w.writeIndentedLine(`} else {`);
+        this.w.pushIndent();
+        this.emitTailBlock(stmt.else);
+        this.w.popIndent();
+        this.w.writeIndentedLine(`}`);
+      }
+    } else {
+      this.w.writeIndentedLine(`}`);
+    }
+  }
+
+  /** Like emitWhenStmt but with tail-return applied recursively to each branch body. */
+  private emitWhenStmtWithTailReturn(stmt: AST.WhenStmt): void {
+    const subjectVar = stmt.subject ? "__when_subject__" : null;
+    if (stmt.subject) {
+      const binding = stmt.subject.binding ?? subjectVar!;
+      this.w.writeIndentedLine(`const ${binding} = ${this.emitExpr(stmt.subject.expr)};`);
+    }
+    let first = true;
+    for (const branch of stmt.branches) {
+      if (branch.isElse) {
+        this.w.writeIndentedLine(first ? `{` : `} else {`);
+      } else {
+        const cond = branch.conditions.map((c) => this.emitWhenCondition(c, subjectVar ?? "")).join(" || ");
+        this.w.writeIndentedLine(first ? `if (${cond}) {` : `} else if (${cond}) {`);
+      }
+      first = false;
+      this.w.pushIndent();
+      if (branch.body.kind === "Block") {
+        this.emitTailBlock(branch.body);
+      } else {
+        this.w.writeIndentedLine(`return ${this.emitExpr(branch.body)};`);
+      }
+      this.w.popIndent();
+    }
+    this.w.writeIndentedLine(`}`);
   }
 
   // ── regular class ──────────────────────────────────────────────────────────

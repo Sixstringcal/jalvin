@@ -397,6 +397,62 @@ component fun MyComp() {
     expect(code).not.toContain("return x");
     expect(code).not.toContain("return val");
   });
+
+  it("implicitly returns UI call inside if branch at tail position", () => {
+    const code = gen(`
+import @jalvin/ui.Text
+component fun MoveCounter(isEOView: Boolean) {
+  if (!isEOView) {
+    Text(text = "Moves: ...")
+  }
+}`);
+    expect(code).toContain("return Text(");
+    // The return must be inside the if block, not a standalone statement
+    expect(code).toMatch(/if\s*\([^)]+\)\s*\{[^}]*return Text\(/s);
+  });
+
+  it("implicitly returns UI call in both branches of if/else at tail position", () => {
+    const code = gen(`
+import @jalvin/ui.Text
+component fun StatusLabel(loading: Boolean) {
+  if (loading) {
+    Text(text = "Loading...")
+  } else {
+    Text(text = "Done")
+  }
+}`);
+    const returnMatches = [...code.matchAll(/return Text\(/g)];
+    expect(returnMatches).toHaveLength(2);
+  });
+
+  it("implicitly returns UI call in chained else-if branches at tail position", () => {
+    const code = gen(`
+import @jalvin/ui.Text
+component fun Label(state: Int) {
+  if (state == 0) {
+    Text(text = "Zero")
+  } else if (state == 1) {
+    Text(text = "One")
+  } else {
+    Text(text = "Other")
+  }
+}`);
+    const returnMatches = [...code.matchAll(/return Text\(/g)];
+    expect(returnMatches).toHaveLength(3);
+  });
+
+  it("implicitly returns UI call inside when branch at tail position", () => {
+    const code = gen(`
+import @jalvin/ui.Text
+component fun Phase(phase: String) {
+  when (phase) {
+    "a" -> Text(text = "Phase A")
+    else -> Text(text = "Other")
+  }
+}`);
+    const returnMatches = [...code.matchAll(/return Text\(/g)];
+    expect(returnMatches).toHaveLength(2);
+  });
 });
 
 describe("Codegen — UI primitives (no new keyword)", () => {

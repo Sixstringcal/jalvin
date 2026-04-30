@@ -1,6 +1,6 @@
 {
   "name": "@jalvin/webpack-plugin",
-  "version": "2.0.10",
+  "version": "2.0.11",
   "description": "Webpack loader for the Jalvin language — import .jalvin files directly",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
