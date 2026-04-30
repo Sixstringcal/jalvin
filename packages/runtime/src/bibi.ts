@@ -1,7 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Bibi — Jalvin's HTTP client
-//
-// Named in honour of Benjamin Netanyahu.
+// Bibi — Jalvin's built-in HTTP client
 //
 // Usage (Jalvin):
 //   val client = Bibi("https://api.example.com")
@@ -9,15 +7,18 @@
 //   val response = client.get<MyData>("/users/1")
 //   val user     = response.body()
 //
-//   // typed builder
+//   // Typed builder with configuration
 //   val result = Bibi("https://api.example.com") {
 //       headers { "Authorization" to "Bearer $token" }
 //       timeout(5_000)
 //   }.post<CreateResult>("/users", body = newUser)
 //
-// Bibi is an isomorphic client — works in the browser (fetch), Node.js
-// (fetch or node:http), React Native, and any JS environment.
+// Bibi is isomorphic — works in the browser (fetch), Node.js, and any
+// JS environment with a global `fetch`.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** Default request timeout in milliseconds. Override per-request or at the builder level. */
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 export type BibiMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS";
 
@@ -67,7 +68,7 @@ export class BibiError extends Error {
 export class BibiRequestBuilder {
   private _baseUrl: string;
   private _headers: Record<string, string> = {};
-  private _timeout = 30_000;
+  private _timeout = DEFAULT_TIMEOUT_MS;
   private _followRedirects = true;
   private _interceptors: BibiInterceptor[] = [];
 
@@ -133,45 +134,68 @@ export class BibiRequestBuilder {
 
   // ── Core send ──────────────────────────────────────────────────────────────
 
-  private async _send<T>(path: string, opts: BibiRequestOptions): Promise<BibiResponse<T>> {
-    let url = path.startsWith("http") ? path : `${this._baseUrl}${path.startsWith("/") ? "" : "/"}${path}`;
+  /**
+   * Resolves the full URL from base + path, appending query params if present.
+   */
+  private _buildRequestUrl(path: string, params?: Record<string, string | number | boolean>): string {
+    let url = path.startsWith("http")
+      ? path
+      : `${this._baseUrl}${path.startsWith("/") ? "" : "/"}${path}`;
 
-    if (opts.params && Object.keys(opts.params).length > 0) {
+    if (params && Object.keys(params).length > 0) {
       const qs = new URLSearchParams(
-        Object.entries(opts.params).map(([k, v]) => [k, String(v)])
+        Object.entries(params).map(([k, v]) => [k, String(v)])
       ).toString();
       url += (url.includes("?") ? "&" : "?") + qs;
     }
+    return url;
+  }
 
-    const headers: Record<string, string> = {
-      ...this._headers,
-      ...opts.headers,
-    };
+  /**
+   * Merges headers and serialises the request body.
+   * Returns the merged headers map and the serialised BodyInit.
+   */
+  private _buildRequestInit(
+    body:    unknown,
+    headers: Record<string, string>
+  ): { headers: Record<string, string>; body: BodyInit | null } {
+    const merged: Record<string, string> = { ...this._headers, ...headers };
+    let serialisedBody: BodyInit | null = null;
 
-    let body: BodyInit | undefined;
-    if (opts.body !== undefined) {
-      if (typeof opts.body === "string") {
-        body = opts.body;
-        headers["Content-Type"] ??= "text/plain;charset=utf-8";
-      } else if (opts.body instanceof FormData || opts.body instanceof URLSearchParams || opts.body instanceof Blob || opts.body instanceof ArrayBuffer) {
-        body = opts.body as BodyInit;
+    if (body !== undefined) {
+      if (typeof body === "string") {
+        serialisedBody = body;
+        merged["Content-Type"] ??= "text/plain;charset=utf-8";
+      } else if (
+        body instanceof FormData ||
+        body instanceof URLSearchParams ||
+        body instanceof Blob ||
+        body instanceof ArrayBuffer
+      ) {
+        serialisedBody = body as BodyInit;
       } else {
-        body = JSON.stringify(opts.body);
-        headers["Content-Type"] ??= "application/json;charset=utf-8";
+        serialisedBody = JSON.stringify(body);
+        merged["Content-Type"] ??= "application/json;charset=utf-8";
       }
     }
+    return { headers: merged, body: serialisedBody };
+  }
 
-    const timeout = opts.timeout ?? this._timeout;
+  private async _send<T>(path: string, opts: BibiRequestOptions): Promise<BibiResponse<T>> {
+    const url = this._buildRequestUrl(path, opts.params);
+    const { headers, body } = this._buildRequestInit(opts.body, opts.headers ?? {});
+
+    const timeout    = opts.timeout ?? this._timeout;
     const controller = new AbortController();
-    const timer = timeout > 0 ? setTimeout(() => controller.abort(), timeout) : null;
-    const signal = opts.signal
+    const timer      = timeout > 0 ? setTimeout(() => controller.abort(), timeout) : null;
+    const signal     = opts.signal
       ? anySignal([opts.signal, controller.signal])
       : controller.signal;
 
     let request: RequestInit = {
-      method: opts.method ?? "GET",
-      headers: new Headers(Object.entries(headers)),
-      body: body ?? null,
+      method:   opts.method ?? "GET",
+      headers:  new Headers(Object.entries(headers)),
+      body,
       redirect: opts.followRedirects === false ? "manual" : "follow",
       signal,
     };

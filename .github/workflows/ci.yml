@@ -40,3 +40,5 @@ jobs:
         run: |
           cd packages/compiler
           NODE_OPTIONS=--max-old-space-size=8192 pnpm test
+          cd ../runtime
+          pnpm test

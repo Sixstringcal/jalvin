@@ -35,62 +35,68 @@ export {
 } from "./ui.js";
 export type { MutableState } from "./ui.js";
 
-// Utilities / stdlib shims
+// Utilities / stdlib — each module is a single-purpose file under stdlib/
+// See packages/runtime/src/stdlib/index.ts for the full module map.
 export {
-  notNull, NullPointerException,
-  safeCast,
-  range,
-  delegate, lazy, Delegates,
-  LazyDelegate, ObservableDelegate,
   println, print,
-  listOf, mutableListOf, setOf, mutableSetOf, mapOf, mutableMapOf,
-  pairOf, tripleOf,
+} from "./stdlib/io.js";
+export {
+  notNull, NullPointerException, safeCast,
   checkNotNull, requireNotNull, requireCondition, check, error,
   IllegalArgumentException, IllegalStateException,
   UnsupportedOperationException, IndexOutOfBoundsException, NoSuchElementException,
-  // Scope functions
+} from "./stdlib/types.js";
+export {
+  delegate, lazy, Delegates, LazyDelegate, ObservableDelegate,
   let_, run_, apply, also, with_, takeIf, takeUnless,
-  // Collection operators
+} from "./stdlib/delegates.js";
+export type { PropertyDelegate } from "./stdlib/delegates.js";
+export {
+  listOf, mutableListOf, setOf, mutableSetOf, mapOf, mutableMapOf,
+  pairOf, tripleOf,
   map, filter, filterNotNull, forEach, fold, reduce,
   sumOf, any, all, none, count,
   first, firstOrNull, last, lastOrNull, find, findLast,
   flatMap, flatten, groupBy, associate, zip,
-  distinct, distinctBy,
-  sortedBy, sortedByDescending, reversed,
+  distinct, distinctBy, sortedBy, sortedByDescending, reversed,
+  take, takeWhile, drop, dropWhile,
   chunked, windowed, partition, withIndex,
   minOf, maxOf, minOrNull, maxOrNull, joinToString,
-  take, takeWhile, drop, dropWhile,
-  // Numeric helpers
-  coerceAtLeast, coerceAtMost, coerceIn, Int, Long,
-  // String helpers
-  trimIndent, repeat_ as repeatString, isBlank, isNotBlank, isNullOrBlank,
-  toIntOrNull, toDoubleOrNull, toBooleanOrNull, padStart, padEnd,
-  // Extended string utilities
+  buildList, buildSet, buildMap,
+} from "./stdlib/collections.js";
+export {
+  isBlank, isNotBlank, isNullOrBlank,
+  toIntOrNull, toDoubleOrNull, toBooleanOrNull,
+  padStart, padEnd, repeat_ as repeatString,
   capitalize, decapitalize,
   substringBefore, substringAfter, substringBeforeLast, substringAfterLast,
   removePrefix, removeSuffix, lines, lineSequence,
-  ifEmpty, ifBlank,
-  // Type conversions
-  toInt, toLong, toFloat, toDouble, toChar, charCodeOf, toString,
-  // Math functions
+  ifEmpty, ifBlank, trimIndent,
+  StringBuilder, buildString,
+} from "./stdlib/strings.js";
+export {
   abs, ceil, floor, round, sqrt, pow, exp, ln, log2, log10,
   sin, cos, tan, asin, acos, atan, atan2,
   sign, hypot, truncate, clamp, truncDiv, PI, E,
-  // IntRange + range operators
-  IntRange, downTo, step,
-  // Collection builders
-  StringBuilder, buildString, buildList, buildSet, buildMap,
-  // Result<T>
+  coerceAtLeast, coerceAtMost, coerceIn, Int, Long,
+} from "./stdlib/math.js";
+export {
+  toInt, toLong, toFloat, toDouble, toChar, charCodeOf, toString,
+  Pair, Triple, range, IntRange, downTo, step,
+} from "./stdlib/conversions.js";
+export {
   Result, runCatching, runCatchingAsync,
-  // Regex
+} from "./stdlib/result.js";
+export {
   Regex, RegexResult,
-  // Timing
-  measureTimeMillis, measureTimeMillisAsync, measureTimedValue,
-  // Random
+} from "./stdlib/regex.js";
+export {
   Random, Default as DefaultRandom, randomUUID,
-  // Structural equality (backs the == operator)
+} from "./stdlib/random.js";
+export {
+  measureTimeMillis, measureTimeMillisAsync, measureTimedValue,
+} from "./stdlib/timing.js";
+export type { TimedValue } from "./stdlib/timing.js";
+export {
   jalvinEquals,
-  // Pair / Triple as classes
-  Pair, Triple,
-} from "./utils.js";
-export type { PropertyDelegate, TimedValue } from "./utils.js";
+} from "./stdlib/equality.js";
