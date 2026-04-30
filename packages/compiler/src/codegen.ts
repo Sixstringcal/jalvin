@@ -18,6 +18,9 @@ import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import * as AST from "./ast.js";
 import { JType } from "./typechecker.js";
+import { DiagnosticBag } from "./diagnostics.js";
+import { lex } from "./lexer.js";
+import { parse } from "./parser.js";
 
 
 
@@ -106,6 +109,11 @@ export class CodeGenerator {
   private runtimeSymbolsNeeded = new Set<string>();
   /** Names of component functions — used to detect Compose-style calls and emit them as JSX */
   private componentNames = new Set<string>();
+  /**
+   * Param names for components resolved from imported local .jalvin files.
+   * Maps component name → ordered list of param names.
+   */
+  private componentParamNames = new Map<string, string[]>();
   /** True when the program contains `import @jalvin/ui.*` — used to detect UI primitive calls */
   private hasUiStarImport = false;
   /** Operator overload resolutions from the type checker */
@@ -146,6 +154,7 @@ export class CodeGenerator {
 
     // Collect component names for Compose-style call detection
     this.componentNames = new Set<string>();
+    this.componentParamNames = new Map<string, string[]>();
     for (const decl of program.declarations) {
       if (decl.kind === "ComponentDecl") this.componentNames.add(decl.name);
       if (decl.kind === "ClassDecl" && decl.body) {
@@ -165,6 +174,10 @@ export class CodeGenerator {
         this.hasUiStarImport = true;
       }
     }
+
+    // Resolve component fun symbols from locally imported .jalvin files
+    const sourceRoot = this.opts.sourceRoot ?? process.cwd();
+    this.resolveLocalComponentImports(program, sourceRoot);
 
     // Pre-compute external star-import candidates (before emitting anything)
     this.externalStarCandidates = new Set<string>();
@@ -1585,6 +1598,50 @@ export class CodeGenerator {
     return `${callee}${typeArgs}(${finalArgs.join(", ")})`;
   }
 
+  /**
+   * For each non-scoped local import (e.g. `import src.views.MoveCounterView.MoveCounter`),
+   * attempt to load and parse the corresponding .jalvin source file. If the named symbol is
+   * a `component fun`, register it in `componentNames` and record its param names so that
+   * call sites can emit the correct props-object invocation.
+   */
+  private resolveLocalComponentImports(program: AST.Program, sourceRoot: string): void {
+    for (const imp of program.imports) {
+      // Skip scoped packages (@org/pkg) and star imports
+      if (imp.star || imp.path[0]?.startsWith("@")) continue;
+      // Need at least 2 path segments: the last is the symbol, the rest form the file path
+      if (imp.path.length < 2) continue;
+
+      const rawSymbolName = imp.path[imp.path.length - 1]!;
+      const symbolName = imp.alias ?? rawSymbolName;
+      const precedingParts = imp.path.slice(0, -1);
+      const candidatePath = nodePath.join(sourceRoot, precedingParts.join("/") + ".jalvin");
+
+      if (!fs.existsSync(candidatePath)) continue;
+
+      try {
+        const source = fs.readFileSync(candidatePath, "utf8");
+        const diag = new DiagnosticBag();
+        const tokens = lex(source, candidatePath, diag);
+        if (diag.hasErrors) continue;
+        const ast = parse(tokens, candidatePath, diag, source);
+        if (diag.hasErrors) continue;
+
+        // Look for a top-level ComponentDecl matching the imported symbol name
+        const compDecl = ast.declarations.find(
+          (d): d is AST.ComponentDecl =>
+            d.kind === "ComponentDecl" && d.name === rawSymbolName
+        );
+        if (compDecl) {
+          this.componentNames.add(symbolName);
+          this.componentParamNames.set(symbolName, compDecl.params.map((p) => p.name));
+          this.hasComponents = true;
+        }
+      } catch {
+        // Silently skip if the file cannot be read or parsed
+      }
+    }
+  }
+
   /** Returns true if a call expression's callee looks like a class constructor.
    *  In Jalvin, class names always start with an uppercase letter. */
   private isConstructorCall(calleeExpr: AST.Expr): boolean {
@@ -1607,16 +1664,24 @@ export class CodeGenerator {
   private emitComposeCallAsDom(expr: AST.CallExpr): string {
     const tag = (expr.callee as AST.NameExpr).name;
     const calleeType = this.typeMap.get(expr.callee);
-    const paramNames = calleeType?.tag === "func" ? calleeType.paramNames : undefined;
+    // Param names from type checker (for same-file components) or resolved from imported files
+    const paramNames =
+      (calleeType?.tag === "func" ? calleeType.paramNames : undefined) ??
+      this.componentParamNames.get(tag);
 
     // Build props object from named/positional args
     const props: string[] = [];
     for (let i = 0; i < expr.args.length; i++) {
       const arg = expr.args[i]!;
-      const propName = arg.name ?? paramNames?.[i];
+      // Prop name: explicit named arg > known param name > NameExpr variable name (shorthand)
+      const propName =
+        arg.name ??
+        paramNames?.[i] ??
+        (arg.value.kind === "NameExpr" ? arg.value.name : undefined);
       if (!propName) continue;
       const val = this.emitExpr(arg.value);
-      props.push(`${propName}: ${val}`);
+      // Use JS shorthand `{ key }` when key and value are the same identifier
+      props.push(propName === val ? propName : `${propName}: ${val}`);
     }
 
     const propsStr = props.length > 0 ? `{ ${props.join(", ")} }` : "{}";

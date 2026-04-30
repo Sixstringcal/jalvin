@@ -540,3 +540,99 @@ describe("Codegen — method chaining", () => {
     expect(code).toContain("?.");
   });
 });
+describe("Codegen — cross-file component import invocation", () => {
+  it("does not emit 'new' when calling an imported component fun", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jalvin-cmp-test-"));
+    try {
+      // Create a sibling .jalvin file that defines a component fun
+      fs.mkdirSync(path.join(tmpDir, "src", "views"), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, "src", "views", "MoveCounterView.jalvin"),
+        `component fun MoveCounter(vm: Any) { }`
+      );
+
+      const src = `
+import src.views.MoveCounterView.MoveCounter
+
+component fun CubeControlsView(vm: Any) {
+  MoveCounter(vm)
+}`;
+      const result = compile(src, "<test>", { sourceRoot: tmpDir });
+      expect(result.code).not.toContain("new MoveCounter");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("wraps positional args as a props object for imported component fun", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jalvin-cmp-test-"));
+    try {
+      fs.mkdirSync(path.join(tmpDir, "src", "views"), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, "src", "views", "MoveCounterView.jalvin"),
+        `component fun MoveCounter(vm: Any) { }`
+      );
+
+      const src = `
+import src.views.MoveCounterView.MoveCounter
+
+component fun CubeControlsView(vm: Any) {
+  MoveCounter(vm)
+}`;
+      const result = compile(src, "<test>", { sourceRoot: tmpDir });
+      // Positional arg 'vm' should be wrapped into a props object: MoveCounter({ vm })
+      expect(result.code).toContain("MoveCounter({ vm })");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("still emits 'new' for class instantiation in same component body", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jalvin-cmp-test-"));
+    try {
+      fs.mkdirSync(path.join(tmpDir, "src", "views"), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, "src", "views", "MoveCounterView.jalvin"),
+        `component fun MoveCounter(vm: Any) { }`
+      );
+
+      const src = `
+import src.views.MoveCounterView.MoveCounter
+
+component fun CubeControlsView(vm: Any) {
+  val rotVm = RotationButtonsViewModel(vm)
+  MoveCounter(vm)
+}`;
+      const result = compile(src, "<test>", { sourceRoot: tmpDir });
+      // Class (ViewModel) must still use 'new'
+      expect(result.code).toContain("new RotationButtonsViewModel(vm)");
+      // Component must NOT use 'new'
+      expect(result.code).not.toContain("new MoveCounter");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("uses NameExpr variable name as prop key when component param names are known", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jalvin-cmp-test-"));
+    try {
+      fs.mkdirSync(path.join(tmpDir, "src", "views"), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, "src", "views", "MoveCounterView.jalvin"),
+        `component fun MoveCounter(viewModel: Any) { }`
+      );
+
+      const src = `
+import src.views.MoveCounterView.MoveCounter
+
+component fun CubeControlsView(vm: Any) {
+  MoveCounter(vm)
+}`;
+      const result = compile(src, "<test>", { sourceRoot: tmpDir });
+      // Param name is 'viewModel' from the component definition, so MoveCounter({ viewModel: vm })
+      expect(result.code).toContain("MoveCounter({ viewModel: vm })");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
