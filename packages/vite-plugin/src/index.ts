@@ -204,7 +204,7 @@ export function jalvin(opts: JalvinViteOptions = {}): any {
             return;
           }
           const title = opts.entry!.title ?? "Jalvin App";
-          const html = generateIndexHtml(title, `/${VIRTUAL_ENTRY}`);
+          const html = generateIndexHtml(title, `/@id/${VIRTUAL_ENTRY}`);
           const transformed: string = await server.transformIndexHtml(url, html);
           res.setHeader("Content-Type", "text/html");
           res.end(transformed);
