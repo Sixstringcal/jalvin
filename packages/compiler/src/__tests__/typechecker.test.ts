@@ -175,3 +175,115 @@ fun f(): Int {
     expect(ws.some((w) => w.code === "W0002")).toBe(true);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bug-fix tests — v2.0.13
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Typechecker — safe invocation ?.()", () => {
+  it("no error when safely invoking a nullable function property", () => {
+    const errs = errors(`
+class Timer {
+  var onExpired: (() -> Unit)? = null
+  fun tick() { onExpired?.() }
+}`);
+    expect(errs.filter((e) => e.code === "E0301")).toHaveLength(0);
+  });
+
+  it("no error for ?.() with an argument", () => {
+    const errs = errors(`
+fun call(cb: ((Int) -> Unit)?) { cb?.(42) }`);
+    expect(errs.filter((e) => e.code === "E0301")).toHaveLength(0);
+  });
+});
+
+describe("Typechecker — nullable function type properties", () => {
+  it("no error declaring (() -> Unit)?", () => {
+    const errs = errors(`class A { var onExpired: (() -> Unit)? = null }`);
+    expect(errs).toHaveLength(0);
+  });
+
+  it("no error declaring ((Int) -> String)?", () => {
+    const errs = errors(`var mapper: ((Int) -> String)? = null`);
+    expect(errs).toHaveLength(0);
+  });
+});
+
+describe("Typechecker — implicit 'it' parameter", () => {
+  it("resolves 'it' in a trailing lambda even without type context", () => {
+    const errs = errors(`fun f() { val xs = listOf(1, 2, 3); xs.forEach { println(it) } }`);
+    expect(errs.filter((e) => e.code === "E0301" && e.message.includes("'it'"))).toHaveLength(0);
+  });
+
+  it("resolves 'it' in a no-arg lambda passed to an unknown-type function", () => {
+    const errs = errors(`
+import @jalvin/runtime.*
+fun f() { someList.forEach { println(it) } }`);
+    expect(errs.filter((e) => e.code === "E0301" && e.message.includes("'it'"))).toHaveLength(0);
+  });
+});
+
+describe("Typechecker — Unit as a value", () => {
+  it("no error when Unit is used as a call argument", () => {
+    const errs = errors(`fun f() { LaunchedEffect(Unit) { } }`);
+    expect(errs.filter((e) => e.code === "E0301" && e.message.includes("Unit"))).toHaveLength(0);
+  });
+
+  it("no error assigning Unit to a val", () => {
+    const errs = errors(`val sentinel = Unit`);
+    expect(errs.filter((e) => e.code === "E0301")).toHaveLength(0);
+  });
+});
+
+describe("Typechecker — browser globals (confirm / alert)", () => {
+  it("no error calling confirm()", () => {
+    const errs = errors(`fun f() { val ok = confirm("Are you sure?") }`);
+    expect(errs.filter((e) => e.code === "E0301")).toHaveLength(0);
+  });
+
+  it("no error calling alert()", () => {
+    const errs = errors(`fun f() { alert("Hello") }`);
+    expect(errs.filter((e) => e.code === "E0301")).toHaveLength(0);
+  });
+
+  it("no error calling prompt()", () => {
+    const errs = errors(`fun f() { val ans = prompt("Name?") }`);
+    expect(errs.filter((e) => e.code === "E0301")).toHaveLength(0);
+  });
+});
+
+describe("Typechecker — class method scope", () => {
+  it("no error calling a sibling method by bare name", () => {
+    const errs = errors(`
+class Game {
+  fun setScramble(s: String) { }
+  fun reset() { setScramble("hello") }
+}`);
+    expect(errs.filter((e) => e.code === "E0301")).toHaveLength(0);
+  });
+
+  it("no error accessing a sibling property by bare name", () => {
+    const errs = errors(`
+class Counter {
+  var count: Int = 0
+  fun increment() { count = count + 1 }
+}`);
+    expect(errs.filter((e) => e.code === "E0301")).toHaveLength(0);
+  });
+
+  it("no error referencing primary constructor val by bare name in method", () => {
+    const errs = errors(`
+class Greeter(val name: String) {
+  fun greet() { println(name) }
+}`);
+    expect(errs.filter((e) => e.code === "E0301")).toHaveLength(0);
+  });
+
+  it("resolves 'this' without explicit this. prefix inside a method", () => {
+    const errs = errors(`
+class Foo(val x: Int) {
+  fun bar(): Int { return x }
+}`);
+    expect(errs.filter((e) => e.code === "E0301")).toHaveLength(0);
+  });
+});

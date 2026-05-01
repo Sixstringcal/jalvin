@@ -935,6 +935,22 @@ export class Parser {
       }
     }
 
+    // Parenthesized type: (T) — supports nullable function types like (() -> Unit)?
+    if (this.check(TokenKind.LParen)) {
+      const saved = this.pos;
+      try {
+        this.advance(); // consume (
+        const inner = this.parseTypeRef();
+        if (this.check(TokenKind.RParen)) {
+          this.advance(); // consume )
+          return inner;
+        }
+        this.pos = saved;
+      } catch {
+        this.pos = saved;
+      }
+    }
+
     // Simple or generic type
     const name = [this.expectIdentOrKeyword()];
     while (this.check(TokenKind.Dot) && !this.check(TokenKind.DotDot)) {
@@ -1580,6 +1596,26 @@ export class Parser {
         }
         case TokenKind.QuestionDot: {
           this.advance();
+          // x?.() — safe invocation of a nullable function value
+          if (this.check(TokenKind.LParen)) {
+            const args = this.parseCallArgs();
+            let trailingLambda: AST.LambdaExpr | null = null;
+            const savedPosAfterArgs = this.pos;
+            while (this.check(TokenKind.Semicolon)) this.advance();
+            if (this.check(TokenKind.LBrace)) {
+              trailingLambda = this.parseLambda();
+            } else {
+              this.pos = savedPosAfterArgs;
+            }
+            expr = {
+              kind: "SafeCallExpr",
+              span: AST.spanFrom(expr.span, this.prevSpan()),
+              callee: expr,
+              args,
+              trailingLambda,
+            };
+            break;
+          }
           const member = this.expectIdentOrKeyword();
           expr = { kind: "SafeMemberExpr", span: AST.spanFrom(expr.span, this.prevSpan()), target: expr, member };
           break;

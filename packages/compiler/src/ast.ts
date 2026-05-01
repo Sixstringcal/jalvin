@@ -620,6 +620,7 @@ export type Expr =
   | TypeCastExpr
   | SafeCastExpr
   | NotNullExpr
+  | SafeCallExpr
   | ElvisExpr
   | RangeExpr
   | LaunchExpr
@@ -889,6 +890,14 @@ export interface NotNullExpr {
   readonly kind: "NotNullExpr";
   readonly span: Span;
   readonly expr: Expr;
+}
+
+export interface SafeCallExpr {
+  readonly kind: "SafeCallExpr";
+  readonly span: Span;
+  readonly callee: Expr;
+  readonly args: ReadonlyArray<CallArg>;
+  readonly trailingLambda: LambdaExpr | null;
 }
 
 export interface ElvisExpr {

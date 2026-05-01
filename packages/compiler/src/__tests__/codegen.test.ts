@@ -368,6 +368,76 @@ component fun Hr() {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Bug-fix tests — v2.0.13
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Codegen — safe invocation ?.()", () => {
+  it("emits x?.() for a no-arg safe invocation", () => {
+    const code = gen(`fun f(cb: Any?) { cb?.() }`);
+    expect(code).toContain("cb?.()");
+  });
+
+  it("emits x?.(arg) for safe invocation with an argument", () => {
+    const code = gen(`fun f(cb: Any?) { cb?.(42) }`);
+    expect(code).toContain("cb?.(42)");
+  });
+
+  it("emits x?.(a, b) for safe invocation with multiple arguments", () => {
+    const code = gen(`fun f(cb: Any?) { cb?.(1, "x") }`);
+    expect(code).toContain("cb?.(1, \"x\")");
+  });
+});
+
+describe("Codegen — Unit value", () => {
+  it("emits undefined for a bare Unit expression", () => {
+    const code = gen(`fun f() { val u = Unit }`);
+    expect(code).toContain("undefined");
+  });
+
+  it("passes undefined when Unit is used as a call argument", () => {
+    const code = gen(`fun f() { println(Unit) }`);
+    expect(code).toContain("println(undefined)");
+  });
+});
+
+describe("Codegen — class method scope", () => {
+  it("emits bare method name call inside another method (no this. prefix forced)", () => {
+    const code = gen(`
+class Game {
+  fun setScramble(s: String) { }
+  fun reset() { setScramble("hello") }
+}`);
+    expect(code).toContain("setScramble");
+    expect(code).not.toMatch(/\bthis\.setScramble\b/);
+  });
+
+  it("class methods can reference primary constructor val by bare name", () => {
+    const code = gen(`
+class Greeter(val name: String) {
+  fun greet(): String { return name }
+}`);
+    expect(code).toContain("return name");
+  });
+});
+
+describe("Codegen — browser globals pass-through", () => {
+  it("emits confirm() verbatim", () => {
+    const code = gen(`fun f() { val ok = confirm("Sure?") }`);
+    expect(code).toContain("confirm(");
+  });
+
+  it("emits alert() verbatim", () => {
+    const code = gen(`fun f() { alert("Hi") }`);
+    expect(code).toContain("alert(");
+  });
+
+  it("emits prompt() verbatim", () => {
+    const code = gen(`fun f() { val ans = prompt("Name?") }`);
+    expect(code).toContain("prompt(");
+  });
+});
+
 describe("Codegen — component fun implicit return", () => {
   it("implicitly returns last expression in component body", () => {
     const code = gen(`

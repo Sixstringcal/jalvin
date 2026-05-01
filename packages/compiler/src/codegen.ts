@@ -1329,6 +1329,8 @@ export class CodeGenerator {
         if (expr.name === "Int" || expr.name === "Long") {
           this.runtimeSymbolsNeeded.add(expr.name);
         }
+        // Unit singleton emits as undefined (matches Kotlin/JVM void semantics)
+        if (expr.name === "Unit") return "undefined";
         return expr.name;
       case "ThisExpr":          return "this";
       case "SuperExpr":         return "super";
@@ -1389,6 +1391,16 @@ export class CodeGenerator {
         // Runtime check
         this.runtimeSymbolsNeeded.add("notNull");
         return `notNull(${this.emitExpr(expr.expr)})`;
+      case "SafeCallExpr": {
+        // x?.() — safe invocation of a nullable function value
+        const callee = this.emitExpr(expr.callee);
+        const restArgs: string[] = [];
+        for (const a of expr.args) {
+          restArgs.push(a.spread ? `...${this.emitExpr(a.value)}` : this.emitExpr(a.value));
+        }
+        if (expr.trailingLambda) restArgs.push(this.emitLambdaExpr(expr.trailingLambda));
+        return `${callee}?.(${restArgs.join(", ")})`;
+      }
       case "ElvisExpr": {
         // left ?? right  (null coalescing)
         return `(${this.emitExpr(expr.left)} ?? ${this.emitExpr(expr.right)})`;
@@ -2235,6 +2247,7 @@ const JS_GLOBAL_NAMES = new Set([
   "ReadableStream", "WritableStream", "TransformStream",
   "document", "window", "navigator", "location", "history", "screen",
   "performance", "crypto", "indexedDB", "localStorage", "sessionStorage",
+  "confirm", "alert", "prompt",
   "process", "Buffer", "global", "require", "module", "exports", "__dirname", "__filename",
   // Special identifiers
   "undefined", "null", "NaN", "Infinity",

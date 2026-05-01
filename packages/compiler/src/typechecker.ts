@@ -79,11 +79,14 @@ const JS_GLOBALS = new Set([
   "fetch", "URL", "URLSearchParams", "FormData", "Blob", "File",
   "localStorage", "sessionStorage", "performance", "navigator", "location",
   "HTMLElement", "Element", "Event", "CustomEvent",
+  "confirm", "alert", "prompt",
 ]);
 
 export function nullable(t: JType): JType {
   if (t.tag === "nullable") return t;
-  if (t.tag === "nothing") return T_UNIT; // Nothing? ≈ Unit?
+  // Note: Nothing? is kept as nullable(nothing), not collapsed to Unit.
+  // In Kotlin semantics Nothing? is the type of `null` and is assignable
+  // to every nullable type, which isAssignable() handles correctly.
   return { tag: "nullable", inner: t };
 }
 
@@ -601,6 +604,7 @@ export class TypeChecker {
     }
 
     if (!decl.body) return;
+    const body = decl.body;
     const seen = new Set<string>();
 
     // Collect all member names from parent class (for override/abstract checks)
@@ -623,7 +627,55 @@ export class TypeChecker {
     }
 
     const concreteMembers = new Set<string>();
-    for (const member of decl.body.members) {
+
+    // Build a class-level scope so that methods can call sibling members and
+    // reference `this` by bare name — mirroring Kotlin's behaviour.
+    const classScope = new Scope(this.scope);
+    classScope.define({
+      name: "this",
+      type: classType(decl.name, [], decl),
+      mutable: false,
+      span: decl.span,
+    });
+    // Hoist primary-constructor val/var params as class properties
+    const ctor = (decl as AST.ClassDecl).primaryConstructor
+      ?? (decl as AST.DataClassDecl).primaryConstructor
+      ?? null;
+    if (ctor) {
+      for (const p of ctor.params) {
+        if (p.propertyKind) {
+          classScope.define({
+            name: p.name,
+            type: this.resolveTypeRef(p.type),
+            mutable: p.propertyKind === "var",
+            span: p.span,
+          });
+        }
+      }
+    }
+    // Hoist all class body members so they're visible to each other
+    for (const member of body.members) {
+      if (member.kind === "FunDecl") {
+        classScope.define({ name: member.name, type: this.funDeclType(member), mutable: false, span: member.span });
+      } else if (member.kind === "PropertyDecl") {
+        classScope.define({
+          name: member.name,
+          type: member.type ? this.resolveTypeRef(member.type) : T_UNKNOWN,
+          mutable: member.mutable,
+          span: member.span,
+        });
+      } else if (member.kind === "ComponentDecl") {
+        classScope.define({
+          name: member.name,
+          type: { tag: "func", params: this.componentParamTypes(member), ret: T_UNIT, suspend: false },
+          mutable: false,
+          span: member.span,
+        });
+      }
+    }
+
+    this.withScope(classScope, () => {
+    for (const member of body.members) {
       const mName = this.memberName(member);
       if (mName) {
         if (seen.has(mName)) {
@@ -643,6 +695,7 @@ export class TypeChecker {
       }
       this.checkClassMember(member);
     }
+    });
 
     // Check all abstract parent members are implemented (only for non-abstract, non-sealed subclasses)
     const isAbstract = decl.modifiers.modifiers.includes("abstract");
@@ -1050,6 +1103,8 @@ export class TypeChecker {
         if (!sym) {
           // Don't error on Bibi — it's a special runtime symbol
           if (expr.name === "Bibi") return { tag: "func", params: [T_STRING], ret: classType("BibiClient"), suspend: false };
+          // Unit singleton — usable as a value (e.g. LaunchedEffect(Unit))
+          if (expr.name === "Unit") return classType("Unit");
           // Companion-like type objects (for Int.MAX_VALUE, Long.MIN_VALUE)
           if (expr.name === "Int") return classType("IntCompanion");
           if (expr.name === "Long") return classType("LongCompanion");
@@ -1124,6 +1179,16 @@ export class TypeChecker {
         return T_UNKNOWN;
       }
       case "CallExpr": return this.checkCallExpr(expr);
+      case "SafeCallExpr": {
+        const calleeType = this.checkExpr(expr.callee);
+        for (const arg of expr.args) this.checkExpr(arg.value);
+        if (expr.trailingLambda) this.checkLambda(expr.trailingLambda);
+        const inner = unwrapNullable(calleeType);
+        if (inner.tag === "func") return nullable(inner.ret);
+        if (inner.tag === "any" || inner.tag === "unknown" || inner.tag === "error") return T_UNKNOWN;
+        this.diag.error(expr.span, E_NOT_A_FUNCTION, `Type '${this.typeToString(calleeType)}' is not callable`);
+        return T_ERROR;
+      }
       case "LambdaExpr": return this.checkLambda(expr);
       case "IfExpr": return this.checkIfExpr(expr);
       case "WhenExpr": {
@@ -1403,12 +1468,16 @@ export class TypeChecker {
   private checkLambda(expr: AST.LambdaExpr, expectedParamTypes?: JType[]): JType {
     const childScope = new Scope(this.scope);
 
-    // If the lambda has no explicit params, synthesise an `it` binding using
-    // the first expected parameter type.
-    if (expr.params.length === 0 && expectedParamTypes && expectedParamTypes.length === 1) {
+    // If the lambda has no explicit params, synthesise an `it` binding.
+    // Use the expected parameter type when available, otherwise T_UNKNOWN.
+    // This ensures `it` is always resolvable in single-param lambdas.
+    if (expr.params.length === 0) {
+      const itType = (expectedParamTypes && expectedParamTypes.length === 1)
+        ? expectedParamTypes[0]!
+        : T_UNKNOWN;
       childScope.define({
         name: "it",
-        type: expectedParamTypes[0]!,
+        type: itType,
         mutable: false,
         span: expr.span,
       });
@@ -2187,6 +2256,8 @@ export class TypeChecker {
     if (from.tag === "error" || to.tag === "error") return true;
     if (from.tag === "nothing" || to.tag === "any") return true;
     if (from.tag === "unknown" || to.tag === "unknown") return true;
+    // nullable(Nothing) is the type of the `null` literal — assignable to every nullable type
+    if (from.tag === "nullable" && from.inner.tag === "nothing") return to.tag === "nullable";
     if (to.tag === "nullable") return this.isAssignable(from, to.inner) || from.tag === "nullable";
     if (from.tag === "nullable") return false;
     return from.tag === to.tag;

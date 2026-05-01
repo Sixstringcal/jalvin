@@ -378,3 +378,59 @@ describe("Parser — method chaining AST shape", () => {
     expect(extractShape(oneLine.program)).toBe(extractShape(multiLine.program));
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bug-fix tests — v2.0.13
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Parser — safe invocation ?.()", () => {
+  it("parses x?.() with no args as SafeCallExpr", () => {
+    const { program, diag } = parseSource(`fun f(cb: (() -> Unit)?) { cb?.() }`);
+    expect(diag.hasErrors).toBe(false);
+    const fn = program.declarations[0] as FunDecl;
+    const body = fn.body as Block;
+    const stmt = body.statements[0] as import("../../dist/ast.js").ExprStmt;
+    expect(stmt.expr.kind).toBe("SafeCallExpr");
+  });
+
+  it("parses x?.(arg) with arguments as SafeCallExpr", () => {
+    const { program, diag } = parseSource(`fun f(cb: ((Int) -> Unit)?) { cb?.(42) }`);
+    expect(diag.hasErrors).toBe(false);
+    const fn = program.declarations[0] as FunDecl;
+    const body = fn.body as Block;
+    const stmt = body.statements[0] as import("../../dist/ast.js").ExprStmt;
+    expect(stmt.expr.kind).toBe("SafeCallExpr");
+  });
+
+  it("distinguishes ?. member access from ?.() invocation in the same source", () => {
+    const { diag } = parseSource(`
+fun f(s: String?, cb: (() -> Unit)?) {
+  val n = s?.length
+  cb?.()
+}`);
+    expect(diag.hasErrors).toBe(false);
+  });
+});
+
+describe("Parser — nullable function types", () => {
+  it("parses (() -> Unit)? as a nullable function type property", () => {
+    const { program, diag } = parseSource(`class A { var onExpired: (() -> Unit)? = null }`);
+    expect(diag.hasErrors).toBe(false);
+    const cls = program.declarations[0] as ClassDecl;
+    const prop = cls.body!.members[0] as PropertyDecl;
+    expect(prop.name).toBe("onExpired");
+    expect(prop.type?.kind).toBe("NullableTypeRef");
+  });
+
+  it("parses ((Int) -> String)? as a nullable parameterised function type", () => {
+    const { program, diag } = parseSource(`var mapper: ((Int) -> String)? = null`);
+    expect(diag.hasErrors).toBe(false);
+    const prop = program.declarations[0] as PropertyDecl;
+    expect(prop.type?.kind).toBe("NullableTypeRef");
+  });
+
+  it("parses ((Int, Boolean) -> Unit)? with multiple params", () => {
+    const { diag } = parseSource(`var handler: ((Int, Boolean) -> Unit)? = null`);
+    expect(diag.hasErrors).toBe(false);
+  });
+});
