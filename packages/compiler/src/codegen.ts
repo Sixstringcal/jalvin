@@ -267,16 +267,20 @@ export class CodeGenerator {
         const moduleParts = imp.path.slice(0, -1);
         moduleSpecifier = moduleParts[0] + "/" + moduleParts.slice(1).join("/");
       } else {
-        // Local import: check if the preceding segments resolve to a file.
+        // Non-scoped import: prefer local-file convention unless this looks like
+        // an installed npm package path (e.g. cubing/twisty.TwistyPlayer).
         const precedingParts = imp.path.slice(0, -1);
         const precedingRelPath = precedingParts.join("/");
         const fileExts = [".ts", ".tsx", ".jalvin"];
         const precedingIsFile = precedingParts.length > 0 && fileExts.some((ext) =>
           fs.existsSync(nodePath.join(sourceRoot, precedingRelPath + ext))
         );
+        const looksLikeNpmPackage = this.isLikelyNodeModuleImport(imp.path, sourceRoot);
         moduleSpecifier = precedingIsFile
           ? precedingRelPath          // src.models.css.Css → "src/models/css"
-          : imp.path.join("/");       // src.models.Rotation → "src/models/Rotation"
+          : looksLikeNpmPackage
+            ? precedingRelPath        // cubing.twisty.TwistyPlayer → "cubing/twisty"
+            : imp.path.join("/");    // src.models.Rotation → "src/models/Rotation"
       }
 
       if (imp.star && isScoped && this.externalStarCandidates.size > 0) {
@@ -297,6 +301,27 @@ export class CodeGenerator {
       }
     }
     if (program.imports.length > 0) this.w.writeLine();
+  }
+
+  /**
+   * Heuristic for non-scoped imports: if the first path segment resolves to an
+   * installed package in node_modules, treat the import as npm/ESM and strip
+   * the trailing symbol name from the module specifier.
+   */
+  private isLikelyNodeModuleImport(pathParts: ReadonlyArray<string>, sourceRoot: string): boolean {
+    if (pathParts.length < 2) return false;
+    const packageName = pathParts[0]!;
+
+    let dir = sourceRoot;
+    while (true) {
+      const packageJson = nodePath.join(dir, "node_modules", packageName, "package.json");
+      if (fs.existsSync(packageJson)) return true;
+
+      const parent = nodePath.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+    return false;
   }
 
   // ── Top-level declarations ─────────────────────────────────────────────────

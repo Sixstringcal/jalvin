@@ -315,6 +315,40 @@ val counter = mutableStateOf(0)`);
     }
   });
 
+  it("treats installed npm package subpath imports as package exports", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jalvin-test-"));
+    try {
+      fs.mkdirSync(path.join(tmpDir, "node_modules", "cubing"), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, "node_modules", "cubing", "package.json"),
+        '{"name":"cubing","version":"1.0.0"}'
+      );
+
+      const result = compile(`import cubing.twisty.TwistyPlayer\nval x = 1`, "<test>", { sourceRoot: tmpDir });
+      expect(result.code).toContain(`import { TwistyPlayer } from "cubing/twisty"`);
+      expect(result.code).not.toContain(`cubing/twisty/TwistyPlayer`);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("handles additional npm subpath symbols like randomScrambleForEvent", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jalvin-test-"));
+    try {
+      fs.mkdirSync(path.join(tmpDir, "node_modules", "cubing"), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, "node_modules", "cubing", "package.json"),
+        '{"name":"cubing","version":"1.0.0"}'
+      );
+
+      const result = compile(`import cubing.scramble.randomScrambleForEvent\nval x = 1`, "<test>", { sourceRoot: tmpDir });
+      expect(result.code).toContain(`import { randomScrambleForEvent } from "cubing/scramble"`);
+      expect(result.code).not.toContain(`cubing/scramble/randomScrambleForEvent`);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it("enum type used in import does not pollute star-import named list with local name", () => {
     // The locally declared Enum should not be in the external star-import named imports
     const code = gen(`
