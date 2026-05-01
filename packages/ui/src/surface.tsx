@@ -2,7 +2,6 @@ import React from "react";
 import { Modifier } from "./modifier.js";
 
 export interface CardProps {
-  children?: React.ReactNode;
   modifier?: Modifier;
   onClick?: () => void;
   /** Shadow depth 0–3 */
@@ -18,13 +17,15 @@ const SHADOWS = [
 ] as const;
 
 /** Card container — analogous to Compose's Card / ElevatedCard. */
-export function Card({
-  children,
-  modifier,
-  onClick,
-  elevation = 1,
-  outlined = false,
-}: CardProps): React.ReactElement {
+export function Card(
+  {
+    modifier,
+    onClick,
+    elevation = 1,
+    outlined = false,
+  }: CardProps,
+  children?: React.ReactNode[]
+): React.ReactElement {
   const modProps = modifier?.toProps() ?? {};
   return React.createElement("div", {
     ...modProps,
@@ -40,11 +41,10 @@ export function Card({
       cursor: onClick ? "pointer" : "default",
       ...modProps.style,
     },
-  }, children);
+  }, ...(children ?? []));
 }
 
 export interface ScaffoldProps {
-  children?: React.ReactNode;
   topBar?: React.ReactNode;
   bottomBar?: React.ReactNode;
   floatingActionButton?: React.ReactNode;
@@ -55,13 +55,15 @@ export interface ScaffoldProps {
  * Full-page layout scaffold — analogous to Compose's Scaffold.
  * Stacks topBar, scrollable content, and bottomBar.
  */
-export function Scaffold({
-  children,
-  topBar,
-  bottomBar,
-  floatingActionButton,
-  modifier,
-}: ScaffoldProps): React.ReactElement {
+export function Scaffold(
+  {
+    topBar,
+    bottomBar,
+    floatingActionButton,
+    modifier,
+  }: ScaffoldProps,
+  children?: React.ReactNode[]
+): React.ReactElement {
   const modProps = modifier?.toProps() ?? {};
   return React.createElement("div", {
     ...modProps,
@@ -77,7 +79,7 @@ export function Scaffold({
     topBar,
     React.createElement("main", {
       style: { flex: 1, overflow: "auto" },
-    }, children),
+    }, ...(children ?? [])),
     bottomBar,
     floatingActionButton && React.createElement("div", {
       style: { position: "absolute", bottom: "16px", right: "16px" },

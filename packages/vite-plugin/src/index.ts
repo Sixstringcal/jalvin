@@ -71,13 +71,13 @@ function generateIndexHtml(title: string, scriptSrc: string): string {
     <title>${title}</title>
     <style>
       *, *::before, *::after { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
       body {
-        margin: 0;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         background: #fafafa;
         color: #1c1c1c;
       }
-      #root { min-height: 100vh; }
+      #root { height: 100%; }
     </style>
   </head>
   <body>
@@ -92,11 +92,30 @@ function generateEntryModule(entryFilePath: string, component: string): string {
   return [
     `import React from "react";`,
     `import ReactDOM from "react-dom/client";`,
-    `import { ${component} } from ${JSON.stringify(entryFilePath)};`,
     ``,
-    `ReactDOM.createRoot(document.getElementById("root")).render(`,
-    `  React.createElement(React.StrictMode, null, React.createElement(${component}))`,
-    `);`,
+    `function showError(err) {`,
+    `  const root = document.getElementById("root");`,
+    `  if (!root) return;`,
+    `  root.innerHTML = [`,
+    `    '<div style="font-family:monospace;padding:32px;background:#1a1a1a;color:#ff6b6b;min-height:100vh;box-sizing:border-box">',`,
+    `    '<h2 style="margin:0 0 16px;font-size:18px;color:#ff4444">\u26a0\ufe0f Jalvin App Error</h2>',`,
+    `    '<pre style="white-space:pre-wrap;word-break:break-word;background:#111;padding:16px;border-radius:6px;color:#ff9898;font-size:13px">' +`,
+    `      String(err?.stack ?? err) + '</pre>',`,
+    `    '</div>',`,
+    `  ].join('');`,
+    `}`,
+    ``,
+    `window.addEventListener('unhandledrejection', e => showError(e.reason));`,
+    `window.addEventListener('error', e => showError(e.error ?? e.message));`,
+    ``,
+    `try {`,
+    `  const { ${component} } = await import(${JSON.stringify(entryFilePath)});`,
+    `  ReactDOM.createRoot(document.getElementById("root")).render(`,
+    `    React.createElement(React.StrictMode, null, React.createElement(${component}))`,
+    `  );`,
+    `} catch (err) {`,
+    `  showError(err);`,
+    `}`,
   ].join("\n");
 }
 
@@ -116,6 +135,13 @@ export function jalvin(opts: JalvinViteOptions = {}): any {
     },
 
     config(cfg: any, { command }: { command: string }) {
+      // Ensure @jalvin/runtime (CJS) is pre-bundled by Vite's esbuild so the
+      // browser receives a proper ES module instead of bare CommonJS.
+      cfg.optimizeDeps = cfg.optimizeDeps ?? {};
+      const include: string[] = cfg.optimizeDeps.include ?? [];
+      if (!include.includes("@jalvin/runtime")) include.push("@jalvin/runtime");
+      cfg.optimizeDeps.include = include;
+
       if (!opts.entry) return;
       if (command === "build") {
         // For builds, set the virtual entry as the rollup input.
