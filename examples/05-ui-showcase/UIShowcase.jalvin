@@ -12,6 +12,8 @@ import @jalvin/ui.IconButton
 import @jalvin/ui.Spacer
 import @jalvin/ui.Divider
 import @jalvin/ui.Input
+import @jalvin/ui.TextArea
+import @jalvin/ui.Checkbox
 import @jalvin/ui.Card
 import @jalvin/ui.Scaffold
 import @jalvin/ui.TopBar
@@ -279,6 +281,43 @@ component fun InputShowcase() {
     }
 }
 
+component fun MoveInputShowcase() {
+    val scrambleMoves = mutableStateOf("R U R' U'\nF R U R' U' F'")
+    val eoEnabled = mutableStateOf(false)
+
+    return Column(modifier = Modifier.fillMaxWidth(), spacing = 12) {
+        SectionHeader(title = "Move Input Demo")
+
+        TextArea(
+            value = scrambleMoves.value,
+            onValueChange = (v: String) => { scrambleMoves.value = v },
+            label = "Move textarea",
+            placeholder = "Paste one or more move lines",
+            rows = 6,
+            supportingText = "Multiline input for TwistyPlayer setup")
+
+        Checkbox(
+            checked = eoEnabled.value,
+            onCheckedChange = (checked: Boolean) => { eoEnabled.value = checked },
+            label = "EO toggle",
+            supportingText = "Enable edge-orientation training mode")
+
+        Card(outlined = true, modifier = Modifier.fillMaxWidth()) {
+            Column(spacing = 6) {
+                Text(text = "Preview", style = TextStyle.labelLarge, color = Color.OnSurfaceVariant)
+                Text(text = "Move lines:", style = TextStyle.bodySmall, color = Color.OnSurfaceVariant)
+                Text(
+                    text = if (scrambleMoves.value.length > 0) scrambleMoves.value else "(empty)",
+                    style = TextStyle.bodyMedium)
+                Text(
+                    text = if (eoEnabled.value) "EO: ON" else "EO: OFF",
+                    style = TextStyle.bodyMedium,
+                    color = if (eoEnabled.value) Color.Success else Color.OnSurfaceVariant)
+            }
+        }
+    }
+}
+
 component fun CardShowcase() {
     val lastClicked = mutableStateOf("")
 
@@ -471,6 +510,7 @@ component fun UIShowcase() {
             LayoutShowcase()
             SpacerDividerShowcase()
             InputShowcase()
+            MoveInputShowcase()
             CardShowcase()
             ImageShowcase()
             ScaffoldShowcase()

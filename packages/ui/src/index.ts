@@ -23,10 +23,16 @@ export type { ButtonProps, ButtonVariant, IconButtonProps } from "./button.js";
 // Text
 export { Text } from "./text.js";
 export type { TextProps } from "./text.js";
+export { TextStyle } from "./typography.js";
+export type { TextStyleDef, TextStyleKey } from "./typography.js";
 
 // Input
 export { Input } from "./input.js";
 export type { InputProps } from "./input.js";
+export { TextArea } from "./textarea.js";
+export type { TextAreaProps } from "./textarea.js";
+export { Checkbox } from "./checkbox.js";
+export type { CheckboxProps } from "./checkbox.js";
 
 // Image
 export { Image, AsyncImage } from "./image.js";
