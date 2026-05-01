@@ -881,6 +881,7 @@ export class TypeChecker {
    * Extract smart-cast bindings from an `is`-check condition.
    * `x is T` → { x: T }
    * `x is T && y is U` → { x: T, y: U }
+   * `x != null` → { x: unwrapped(x) }
    */
   private extractSmartCasts(condition: AST.Expr): Map<string, JType> {
     const result = new Map<string, JType>();
@@ -888,6 +889,15 @@ export class TypeChecker {
       if (condition.expr.kind === "NameExpr") {
         result.set(condition.expr.name, this.resolveTypeRef(condition.type));
       }
+    } else if (
+      condition.kind === "BinaryExpr" &&
+      (condition.op === "!=" || condition.op === "!==") &&
+      condition.right.kind === "NullLiteralExpr" &&
+      condition.left.kind === "NameExpr"
+    ) {
+      // x != null → narrow x to its non-nullable type inside then-branch
+      const varType = this.scope.lookup(condition.left.name)?.type;
+      if (varType) result.set(condition.left.name, unwrapNullable(varType));
     } else if (condition.kind === "BinaryExpr" && condition.op === "&&") {
       for (const [k, v] of this.extractSmartCasts(condition.left)) result.set(k, v);
       for (const [k, v] of this.extractSmartCasts(condition.right)) result.set(k, v);
@@ -899,6 +909,7 @@ export class TypeChecker {
    * Extract smart-cast bindings for the ELSE branch.
    * `x !is T` → in else, `x` IS `T` → { x: T }
    * `x !is T || y !is U` → in else (both negations must fail), { x: T, y: U }
+   * `x == null` → in else, x is non-null → { x: unwrapped(x) }
    */
   private extractElseSmartCasts(condition: AST.Expr): Map<string, JType> {
     const result = new Map<string, JType>();
@@ -907,6 +918,15 @@ export class TypeChecker {
       if (condition.expr.kind === "NameExpr") {
         result.set(condition.expr.name, this.resolveTypeRef(condition.type));
       }
+    } else if (
+      condition.kind === "BinaryExpr" &&
+      (condition.op === "==" || condition.op === "===") &&
+      condition.right.kind === "NullLiteralExpr" &&
+      condition.left.kind === "NameExpr"
+    ) {
+      // x == null → in else branch, x is non-null
+      const varType = this.scope.lookup(condition.left.name)?.type;
+      if (varType) result.set(condition.left.name, unwrapNullable(varType));
     } else if (condition.kind === "BinaryExpr" && condition.op === "||") {
       // x !is T || y !is U → both must be false to reach else, so both narrow
       for (const [k, v] of this.extractElseSmartCasts(condition.left)) result.set(k, v);

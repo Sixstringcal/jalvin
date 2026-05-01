@@ -287,3 +287,73 @@ class Foo(val x: Int) {
     expect(errs.filter((e) => e.code === "E0301")).toHaveLength(0);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bug-fix tests — null-check smart-cast
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Typechecker — null-check smart-cast (!= null / == null)", () => {
+  it("no E0303 on direct member access after x != null guard", () => {
+    const errs = errors(
+`fun f(x: String?) {
+  if (x != null) {
+    val n = x.length
+  }
+}`);
+    expect(errs.filter((e) => e.code === "E0303")).toHaveLength(0);
+  });
+
+  it("no E0303 on method call after x !== null guard", () => {
+    const errs = errors(
+`fun f(x: String?) {
+  if (x !== null) {
+    val up = x.uppercase()
+  }
+}`);
+    expect(errs.filter((e) => e.code === "E0303")).toHaveLength(0);
+  });
+
+  it("narrows in else branch of x == null check", () => {
+    const errs = errors(
+`fun f(x: String?) {
+  if (x == null) {
+    println("null")
+  } else {
+    val n = x.length
+  }
+}`);
+    expect(errs.filter((e) => e.code === "E0303")).toHaveLength(0);
+  });
+
+  it("narrows in else branch of x === null check", () => {
+    const errs = errors(
+`fun f(x: String?) {
+  if (x === null) {
+    println("null")
+  } else {
+    val n = x.length
+  }
+}`);
+    expect(errs.filter((e) => e.code === "E0303")).toHaveLength(0);
+  });
+
+  it("does NOT narrow outside the if-block", () => {
+    const errs = errors(
+`fun f(x: String?) {
+  if (x != null) { }
+  val n = x.length
+}`);
+    expect(errs.some((e) => e.code === "E0303")).toBe(true);
+  });
+
+  it("smart-cast works alongside existing is-check narrowing in same condition", () => {
+    const errs = errors(
+`fun f(x: String?) {
+  if (x != null) {
+    val up = x.uppercase()
+    val n  = x.length
+  }
+}`);
+    expect(errs.filter((e) => e.code === "E0303")).toHaveLength(0);
+  });
+});

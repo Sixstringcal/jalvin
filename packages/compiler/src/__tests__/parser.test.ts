@@ -434,3 +434,110 @@ describe("Parser — nullable function types", () => {
     expect(diag.hasErrors).toBe(false);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bug-fix tests — else-if ASI, explicit type params, null-check smart-cast
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Parser — else if on a new line (ASI fix)", () => {
+  it("parses else if on a new line without error", () => {
+    const { diag } = parseSource(
+`fun classify(n: Int): String {
+  if (n < 0) {
+    return "negative"
+  } else if (n == 0) {
+    return "zero"
+  } else {
+    return "positive"
+  }
+}`
+    );
+    expect(diag.hasErrors).toBe(false);
+  });
+
+  it("parses a three-way else-if chain with all branches on new lines", () => {
+    const { diag } = parseSource(
+`fun f(x: Int) {
+  if (x == 1) {
+    println("one")
+  } else if (x == 2) {
+    println("two")
+  } else if (x == 3) {
+    println("three")
+  } else {
+    println("other")
+  }
+}`
+    );
+    expect(diag.hasErrors).toBe(false);
+  });
+
+  it("produces an IfStmt with a nested IfStmt as the else clause", () => {
+    const { program, diag } = parseSource(
+`fun f(x: Int) {
+  if (x > 0) {
+    println("pos")
+  } else if (x < 0) {
+    println("neg")
+  } else {
+    println("zero")
+  }
+}`
+    );
+    expect(diag.hasErrors).toBe(false);
+    const fn = program.declarations[0] as FunDecl;
+    const body = fn.body as Block;
+    const outer = body.statements[0] as import("../../dist/ast.js").IfStmt;
+    expect(outer.kind).toBe("IfStmt");
+    expect(outer.else?.kind).toBe("IfStmt");
+    const inner = outer.else as import("../../dist/ast.js").IfStmt;
+    expect(inner.else?.kind).toBe("Block");
+  });
+
+  it("inline else if on the same line still works", () => {
+    const { diag } = parseSource(
+      `fun f(x: Int) { if (x > 0) { } else if (x < 0) { } else { } }`
+    );
+    expect(diag.hasErrors).toBe(false);
+  });
+});
+
+describe("Parser — explicit type parameters on call expressions", () => {
+  it("parses mutableListOf<String>() without error", () => {
+    const { diag } = parseSource(`fun f() { val xs = mutableListOf<String>() }`);
+    expect(diag.hasErrors).toBe(false);
+  });
+
+  it("parses listOf<Int>() without error", () => {
+    const { diag } = parseSource(`fun f() { val xs = listOf<Int>() }`);
+    expect(diag.hasErrors).toBe(false);
+  });
+
+  it("parses mutableListOf<String?>() with a nullable type arg", () => {
+    const { diag } = parseSource(`fun f() { val xs = mutableListOf<String?>() }`);
+    expect(diag.hasErrors).toBe(false);
+  });
+
+  it("produces a CallExpr with the correct typeArgs", () => {
+    const { program, diag } = parseSource(`fun f() { val xs = mutableListOf<String>() }`);
+    expect(diag.hasErrors).toBe(false);
+    const fn = program.declarations[0] as FunDecl;
+    const body = fn.body as Block;
+    const prop = body.statements[0] as PropertyDecl;
+    const call = prop.initializer as CallExpr;
+    expect(call.kind).toBe("CallExpr");
+    expect(call.typeArgs).toHaveLength(1);
+  });
+
+  it("still parses a < comparison without treating it as a type arg", () => {
+    const { diag } = parseSource(`fun f(a: Int, b: Int): Boolean { return a < b }`);
+    expect(diag.hasErrors).toBe(false);
+  });
+
+  it("parses an if expression passed to mutableListOf as a call arg without confusion", () => {
+    const { diag } = parseSource(
+      `fun f(cond: Boolean) { val xs = mutableListOf(if (cond) "a" else "b") }`
+    );
+    expect(diag.hasErrors).toBe(false);
+  });
+});

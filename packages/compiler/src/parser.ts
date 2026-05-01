@@ -1179,6 +1179,8 @@ export class Parser {
     const condition = this.parseExpr();
     this.expect(TokenKind.RParen);
     const then = this.parseBlock();
+    // Skip ASI-inserted semicolons between the then-block's `}` and `else`
+    while (this.check(TokenKind.Semicolon)) this.advance();
     let elseClause: AST.Block | AST.IfStmt | null = null;
     if (this.check(TokenKind.KwElse)) {
       this.advance();
@@ -1651,11 +1653,12 @@ export class Parser {
         case TokenKind.Lt: {
           if (this.current().span.startOffset > 0 && this.source[this.current().span.startOffset - 1] === "\n") break loop;
           // Only attempt type-arg parsing when the next token can actually start a type
-          // argument (* or `in`). All other tokens (identifiers treated as comparisons,
-          // numeric literals, etc.) should be treated as the < comparison operator.
+          // argument (* or `in` or an Identifier). All other tokens should be treated as
+          // the < comparison operator.
           const nextKind = this.tokens[this.pos + 1]?.kind;
-          if (nextKind !== TokenKind.Star && nextKind !== TokenKind.KwIn) break loop;
+          if (nextKind !== TokenKind.Star && nextKind !== TokenKind.KwIn && nextKind !== TokenKind.Identifier) break loop;
           const saved = this.pos;
+          const diagCheckpoint = this.diag.checkpoint();
           try {
             const typeArgs = this.parseTypeArgs();
             if (this.check(TokenKind.LParen)) {
@@ -1676,6 +1679,7 @@ export class Parser {
             }
           } catch { /**/ }
           this.pos = saved;
+          this.diag.rollback(diagCheckpoint);
           break loop;
         }
         case TokenKind.LBracket: {

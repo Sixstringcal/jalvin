@@ -62,6 +62,16 @@ export class DiagnosticBag {
     this._items.push(...other._items);
   }
 
+  /** Returns an opaque checkpoint value for rolling back speculative diagnostics. */
+  checkpoint(): number {
+    return this._items.length;
+  }
+
+  /** Rolls back all diagnostics emitted since the given checkpoint. */
+  rollback(checkpoint: number): void {
+    this._items.length = checkpoint;
+  }
+
   /** Format diagnostics as a human-readable string (for CLI output). */
   format(source?: string): string {
     const lines = source?.split("\n");
