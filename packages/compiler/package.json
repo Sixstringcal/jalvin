@@ -1,6 +1,6 @@
 {
   "name": "@jalvin/compiler",
-  "version": "2.0.17",
+  "version": "2.0.18",
   "description": "Jalvin language compiler — lexer, parser, type checker, and TypeScript/JSX code generator",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

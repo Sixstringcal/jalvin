@@ -19,6 +19,7 @@ import @jalvin/ui.Scaffold
 import @jalvin/ui.TopBar
 import @jalvin/ui.Image
 import @jalvin/ui.AsyncImage
+import @jalvin/ui.Canvas
 import @jalvin/ui.Modifier
 import @jalvin/ui.Color
 import @jalvin/ui.TextStyle
@@ -412,6 +413,59 @@ component fun ImageShowcase() {
     }
 }
 
+component fun CanvasShowcase() {
+    val redrawCount = mutableStateOf(0)
+
+    return Column(modifier = Modifier.fillMaxWidth(), spacing = 12) {
+        SectionHeader(title = "Canvas")
+
+        Text(
+            text = "2D drawing surface rendered with @jalvin/ui.Canvas",
+            style = TextStyle.labelLarge,
+            color = Color.OnSurfaceVariant)
+
+        Card(outlined = true, modifier = Modifier.fillMaxWidth()) {
+            Canvas(
+                width = 640,
+                height = 180,
+                modifier = Modifier.fillMaxWidth().height(180).background(Color.SurfaceVariant).borderRadius(10),
+                draw = (ctx, canvas) => {
+                    ctx.fillStyle = "#ffffff"
+                    ctx.fillRect(0, 0, 640, 180)
+
+                    ctx.fillStyle = "#e3f2fd"
+                    ctx.fillRect(0, 0, 640, 90)
+
+                    ctx.strokeStyle = "#1976d2"
+                    ctx.lineWidth = 3
+                    ctx.beginPath()
+                    ctx.moveTo(16, 90)
+                    ctx.bezierCurveTo(160, 10, 384, 160, 624, 90)
+                    ctx.stroke()
+
+                    ctx.fillStyle = "#1565c0"
+                    ctx.beginPath()
+                    ctx.arc(320, 90, 20 + (redrawCount.value % 5) * 4, 0, 6.28318530718)
+                    ctx.fill()
+
+                    ctx.fillStyle = "#0d47a1"
+                    ctx.font = "600 14px system-ui"
+                    ctx.fillText("redraw #" + redrawCount.value, 16, 164)
+                })
+        }
+
+        Row(spacing = 8, verticalAlignment = "center") {
+            Button(
+                text = "Redraw Canvas",
+                onClick = { redrawCount.value = redrawCount.value + 1 })
+            Text(
+                text = "Click to trigger a new draw pass",
+                style = TextStyle.bodySmall,
+                color = Color.OnSurfaceVariant)
+        }
+    }
+}
+
 component fun ScaffoldShowcase() {
     val drawerOpen = mutableStateOf(false)
 
@@ -513,6 +567,7 @@ component fun UIShowcase() {
             MoveInputShowcase()
             CardShowcase()
             ImageShowcase()
+            CanvasShowcase()
             ScaffoldShowcase()
             ColorShowcase()
         }

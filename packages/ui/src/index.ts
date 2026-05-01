@@ -37,6 +37,8 @@ export type { CheckboxProps } from "./checkbox.js";
 // Image
 export { Image, AsyncImage } from "./image.js";
 export type { ImageProps, AsyncImageProps } from "./image.js";
+export { Canvas } from "./canvas.js";
+export type { CanvasProps } from "./canvas.js";
 
 // Spacer / Divider
 export { Spacer, Divider } from "./spacer.js";
