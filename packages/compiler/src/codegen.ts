@@ -156,10 +156,16 @@ export class CodeGenerator {
     this.componentNames = new Set<string>();
     this.componentParamNames = new Map<string, string[]>();
     for (const decl of program.declarations) {
-      if (decl.kind === "ComponentDecl") this.componentNames.add(decl.name);
+      if (decl.kind === "ComponentDecl") {
+        this.componentNames.add(decl.name);
+        this.componentParamNames.set(decl.name, decl.params.map((p) => p.name));
+      }
       if (decl.kind === "ClassDecl" && decl.body) {
         for (const m of decl.body.members) {
-          if (m.kind === "ComponentDecl") this.componentNames.add(m.name);
+          if (m.kind === "ComponentDecl") {
+            this.componentNames.add(m.name);
+            this.componentParamNames.set(m.name, m.params.map((p) => p.name));
+          }
         }
       }
     }
@@ -213,7 +219,7 @@ export class CodeGenerator {
     return {
       code,
       lineMap: this.w.lineMap,
-      isJsx: false, // DOM-based emit — no JSX
+      isJsx: this.hasComponents,
     };
   }
 
@@ -987,17 +993,21 @@ export class CodeGenerator {
           this.w.writeIndentedLine(`${vis}set ${decl.name}(v: any) { delegate(${delegateExpr}, "${decl.name}", this).setValue(v); }`);
         }
       } else {
-        this.w.writeIndentedLine(`${kw}${decl.name}${type} = ${delegateExpr};`);
+        // Non-member delegate: resolve via delegate().getValue() so the identifier
+        // holds the delegated value, not the raw delegate wrapper object.
+        this.w.writeIndentedLine(`${kw}${decl.name}${type} = delegate(${delegateExpr}, "${decl.name}", null).getValue();`);
       }
       return;
     }
 
     const init = decl.initializer ? ` = ${this.emitExpr(decl.initializer)}` : (isLateinit ? "" : "");
 
-    if (member) {
+    if (member && !decl.getter) {
+      // Skip backing field when a getter is defined — TypeScript forbids both
+      // `readonly name: T` and `get name()` with the same name in a class.
       const modStr = isConst ? "static readonly " : decl.mutable ? "" : "readonly ";
       this.w.writeIndentedLine(`${vis}${modStr}${decl.name}${type}${init};`);
-    } else {
+    } else if (!member) {
       this.w.writeIndentedLine(`${vis}${kw}${decl.name}${type}${init};`);
     }
 
@@ -1016,9 +1026,12 @@ export class CodeGenerator {
     member: boolean,
     type: string
   ): void {
-    const retOrParam = kind === "get" ? type : `(value: any)`;
     const vis = this.visibilityPrefix(acc.modifiers);
-    this.w.writeIndentedLine(`${vis}${kind} ${name}()${retOrParam} {`);
+    if (kind === "set") {
+      this.w.writeIndentedLine(`${vis}set ${name}(value: any) {`);
+    } else {
+      this.w.writeIndentedLine(`${vis}get ${name}()${type} {`);
+    }
     this.w.pushIndent();
     if (acc.body) {
       if (acc.body.kind === "Block") this.emitBlock(acc.body);
@@ -1282,9 +1295,11 @@ export class CodeGenerator {
         return cond.negated ? `!(${check})` : check;
       }
       case "WhenExprCondition":
-        return subject
-          ? `${subject} === ${this.emitExpr(cond.expr)}`
-          : this.emitExpr(cond.expr);
+        if (subject) {
+          this.runtimeSymbolsNeeded.add("jalvinEquals");
+          return `jalvinEquals(${subject}, ${this.emitExpr(cond.expr)})`;
+        }
+        return this.emitExpr(cond.expr);
     }
   }
 
@@ -1317,10 +1332,10 @@ export class CodeGenerator {
     for (const c of stmt.catches) {
       this.w.writeIndentedLine(`} catch (${c.name}: unknown) {`);
       this.w.pushIndent();
-      // Narrow type
-      if (this.opts.emitTypes) {
-        this.w.writeIndentedLine(`if (!(${c.name} instanceof ${this.emitTypeRef(c.type)})) throw ${c.name};`);
-      }
+      // Narrow type — always emit the guard so catch clauses are type-safe
+      // regardless of the emitTypes option (which controls explicit type annotations,
+      // not runtime type checks).
+      this.w.writeIndentedLine(`if (!(${c.name} instanceof ${this.emitTypeRef(c.type)})) throw ${c.name};`);
       this.emitBlock(c.body);
       this.w.popIndent();
     }
@@ -1338,7 +1353,7 @@ export class CodeGenerator {
   emitExpr(expr: AST.Expr): string {
     switch (expr.kind) {
       case "IntLiteralExpr":    return String(expr.value);
-      case "LongLiteralExpr":   return `BigInt(${expr.value})`;
+      case "LongLiteralExpr":   return `${expr.value}n`;
       case "FloatLiteralExpr":
       case "DoubleLiteralExpr": return String(expr.value);
       case "BooleanLiteralExpr": return String(expr.value);

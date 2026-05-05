@@ -59,9 +59,10 @@ describe("Integration — Counter example output structure", () => {
     expect(result.code).toContain("function Counter");
   });
 
-  it("marks the output as JSX", () => {
+  it("marks the output as JSX (Bug: was hardcoded false)", () => {
+    // Counter.jalvin contains `component fun Counter(...)` so isJsx must be true
     const result = compileExample(path.join(EXAMPLES_DIR, "01-counter/Counter.jalvin"));
-    expect(result.isJsx).toBe(false);
+    expect(result.isJsx).toBe(true);
   });
 });
 
@@ -87,7 +88,8 @@ describe("Integration — UIShowcase output structure", () => {
 
   it("marks the output as JSX", () => {
     const result = compileExample(path.join(EXAMPLES_DIR, "05-ui-showcase/UIShowcase.jalvin"));
-    expect(result.isJsx).toBe(false);
+    // UIShowcase contains component funs — isJsx must be true
+    expect(result.isJsx).toBe(true);
   });
 
   it("emits section sub-components", () => {

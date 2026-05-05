@@ -258,6 +258,8 @@ const ASI_SET = new Set<TokenKind>([
   TokenKind.KwThis,
   TokenKind.KwSuper,
   TokenKind.BangBang,
+  TokenKind.PlusPlus,
+  TokenKind.MinusMinus,
 ]);
 
 // ---------------------------------------------------------------------------

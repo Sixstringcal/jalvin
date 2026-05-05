@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { lex } from "../../dist/lexer.js";
 import { DiagnosticBag } from "../../dist/diagnostics.js";
+import { compile } from "../../dist/index.js";
 
 // TokenKind is a const enum — values are inlined as string literals at compile time.
 // We use the string values directly here so that dist imports work correctly.
@@ -27,6 +28,8 @@ const TK = {
   DotDot:         "DotDot",
   DotDotLt:       "DotDotLt",
   Arrow:          "Arrow",
+  PlusPlus:       "PlusPlus",
+  MinusMinus:     "MinusMinus",
 } as const;
 
 function tokens(src: string) {
@@ -279,5 +282,64 @@ describe("Lexer — errors", () => {
 
   it("produces no errors for valid source", () => {
     expect(noErrors("val x: Int = 42")).toHaveLength(0);
+  });
+});
+
+// Bug: PlusPlus and MinusMinus tokens are missing from ASI_SET, so
+// a newline after i++ or i-- does not insert a semicolon.
+describe("Lexer — ASI after ++ and -- (Bug: missing from ASI_SET)", () => {
+  it("inserts semicolon after ++ at end of line", () => {
+    const t = tokens("i++\nfoo");
+    const kinds = t.map((x) => x.kind);
+    expect(kinds).toContain(TK.Semicolon);
+    // Semicolon must appear after the ++ token, not before it
+    const ppIdx = kinds.indexOf(TK.PlusPlus);
+    const semiIdx = kinds.indexOf(TK.Semicolon);
+    expect(ppIdx).toBeGreaterThanOrEqual(0);
+    expect(semiIdx).toBeGreaterThan(ppIdx);
+  });
+
+  it("inserts semicolon after -- at end of line", () => {
+    const t = tokens("i--\nfoo");
+    const kinds = t.map((x) => x.kind);
+    expect(kinds).toContain(TK.Semicolon);
+    const mmIdx = kinds.indexOf(TK.MinusMinus);
+    const semiIdx = kinds.indexOf(TK.Semicolon);
+    expect(mmIdx).toBeGreaterThanOrEqual(0);
+    expect(semiIdx).toBeGreaterThan(mmIdx);
+  });
+
+  it("does NOT insert semicolon before ++ when ++ starts the next line (prefix)", () => {
+    // `x\n++y` — here ++ is a prefix on the next line; should split into two statements
+    // x gets a semicolon because it is an Identifier
+    const t = tokens("x\n++y");
+    const kinds = t.map((x) => x.kind);
+    expect(kinds).toContain(TK.Semicolon);
+  });
+
+  it("++ followed by newline and call statement compiles without parse errors", () => {
+    const result = compile(
+      `fun f() {\n  var i = 0\n  i++\n  println(i)\n}\nfun println(any: Any) { }`,
+      "<test>"
+    );
+    const errors = result.diagnostics.items.filter((d) => d.severity === "error");
+    expect(errors).toHaveLength(0);
+  });
+
+  it("-- followed by newline and call statement compiles without parse errors", () => {
+    const result = compile(
+      `fun f() {\n  var i = 5\n  i--\n  println(i)\n}\nfun println(any: Any) { }`,
+      "<test>"
+    );
+    const errors = result.diagnostics.items.filter((d) => d.severity === "error");
+    expect(errors).toHaveLength(0);
+  });
+
+  it("post-increment result still emits correctly after ASI fix", () => {
+    const result = compile(
+      `fun f() {\n  var i = 0\n  i++\n  println(i)\n}\nfun println(any: Any) { }`,
+      "<test>"
+    );
+    expect(result.code).toContain("i++");
   });
 });

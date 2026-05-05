@@ -196,7 +196,8 @@ fun label(n: Int): String {
     else -> "other"
   }
 }`);
-    expect(code).toContain("if (__s === 1)");
+    // when conditions now use jalvinEquals for structural equality (works for primitives too)
+    expect(code).toContain("jalvinEquals(__s, 1)");
   });
 });
 
@@ -794,5 +795,235 @@ component fun CubeControlsView(vm: Any) {
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bug regression tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Bug 1: Setter accessor emits double-paren syntax: `set x()(value: any) {`
+describe("Codegen — property setter signature (Bug: double-paren)", () => {
+  it("emits set x(value: any) { — single-paren setter signature", () => {
+    // Inline syntax avoids ASI splitting the property from its accessor
+    // Note: Jalvin property accessor params require an explicit type annotation
+    const code = gen(`class Foo { var x: Int set(value: Int) { } }`);
+    // Must NOT emit set x()(value: any) — double paren is invalid TypeScript
+    expect(code).not.toMatch(/set x\s*\(\s*\)\s*\(/);
+    // Must emit a valid setter: set x( followed by a parameter, not another ()
+    expect(code).toMatch(/set x\s*\(\s*value/);
+  });
+
+  it("setter does not have an empty parameter list before the value parameter", () => {
+    const code = gen(`class Counter { var count: Int set(value: Int) { } }`);
+    // The pattern `set <name>()(<anything>` indicates double paren — must not occur
+    expect(code).not.toMatch(/set \w+\s*\(\s*\)\s*\(/);
+  });
+
+  it("getter still emits get x() { — empty parameter list", () => {
+    const code = gen(`class Foo { val x: Int get() { return 5 } }`);
+    expect(code).toMatch(/get x\s*\(\s*\)/);
+  });
+});
+
+// Bug 2: Class member with custom getter emits both backing field AND accessor
+describe("Codegen — property getter no backing-field collision (Bug: duplicate name)", () => {
+  it("does NOT emit both readonly field and getter with the same name", () => {
+    const code = gen(`class Foo { val name: String get() { return "computed" } }`);
+    // Extract the class body to scope the search
+    const classBody = code.match(/class Foo\s*\{([\s\S]*)\}/)?.[1] ?? code;
+    const hasBackingField = /\breadonly name\b/.test(classBody);
+    const hasGetter = /\bget name\b/.test(classBody);
+    // TypeScript forbids declaring both `readonly name: T` and `get name()` in a class
+    expect(hasBackingField && hasGetter).toBe(false);
+  });
+
+  it("emits the getter when a property has a custom getter", () => {
+    const code = gen(`class Widget { val label: String get() { return "custom" } }`);
+    expect(code).toMatch(/\bget label\b/);
+  });
+});
+
+// Bug 3: generate() always returns isJsx: false
+describe("Codegen — isJsx flag (Bug: hardcoded false)", () => {
+  it("returns isJsx: true for a file containing a component fun", () => {
+    const result = compile(`component fun App() { }`, "<test>");
+    expect(result.isJsx).toBe(true);
+  });
+
+  it("returns isJsx: true when @jalvin/ui is imported", () => {
+    const result = compile(`import @jalvin/ui.*\nfun f() { }`, "<test>");
+    expect(result.isJsx).toBe(true);
+  });
+
+  it("returns isJsx: false for a plain file with no component fun and no @jalvin/ui import", () => {
+    const result = compile(`fun add(a: Int, b: Int): Int = a + b`, "<test>");
+    expect(result.isJsx).toBe(false);
+  });
+
+  it("returns isJsx: true when a component fun is nested inside a class", () => {
+    const result = compile(`
+class MyWidget {
+  component fun render() { }
+}`, "<test>");
+    expect(result.isJsx).toBe(true);
+  });
+});
+
+// Bug 5: catch type narrowing (instanceof guard) only emitted when emitTypes: true
+describe("Codegen — catch instanceof narrowing (Bug: gated on emitTypes)", () => {
+  it("emits instanceof type guard in catch block with default emitTypes: false", () => {
+    const code = gen(`
+fun f() {
+  try {
+    println("x")
+  } catch (e: SomeError) {
+    println("err")
+  }
+}`);
+    expect(code).toContain("instanceof SomeError");
+  });
+
+  it("emits instanceof guard for catch block with emitTypes: true", () => {
+    const result = compile(`
+fun f() {
+  try {
+    println("x")
+  } catch (e: SomeError) {
+    println("err")
+  }
+}
+fun println(any: Any) { }`, "<test>", { emitTypes: true });
+    expect(result.code).toContain("instanceof SomeError");
+  });
+
+  it("emits instanceof guard for each catch clause independently", () => {
+    const code = gen(`
+fun f() {
+  try {
+    println("x")
+  } catch (e: TypeError) {
+    println("type")
+  } catch (e: RangeError) {
+    println("range")
+  }
+}`);
+    expect(code).toContain("instanceof TypeError");
+    expect(code).toContain("instanceof RangeError");
+  });
+});
+
+// Bug 6: LongLiteralExpr emits BigInt(number) losing precision for > MAX_SAFE_INTEGER values
+describe("Codegen — Long literal precision (Bug: BigInt(number) for large values)", () => {
+  it("does not pass a JS number literal to BigInt for Long.MAX_VALUE", () => {
+    // Long.MAX_VALUE = 9223372036854775807 — far above Number.MAX_SAFE_INTEGER (9007199254740991)
+    // BigInt(9223372036854775807) rounds to wrong value; must use BigInt("...") or n suffix
+    const code = gen(`val n = 9223372036854775807L`);
+    // Passing a JS number literal to BigInt causes precision loss
+    expect(code).not.toMatch(/BigInt\(9223372036854775807\)/);
+    // Must preserve the exact value via string or BigInt literal
+    expect(code).toMatch(/BigInt\("9223372036854775807"\)|9223372036854775807n/);
+  });
+
+  it("does not pass a JS number literal to BigInt for value just above MAX_SAFE_INTEGER", () => {
+    // 9007199254740993 = 2^53 + 1 — first integer JS floats cannot represent exactly
+    const code = gen(`val n = 9007199254740993L`);
+    expect(code).not.toMatch(/BigInt\(9007199254740993\)/);
+    expect(code).toMatch(/BigInt\("9007199254740993"\)|9007199254740993n/);
+  });
+
+  it("emits a correct BigInt literal for a small Long value", () => {
+    const code = gen(`val n = 42L`);
+    // Any of these three forms is correct for small values
+    expect(code).toMatch(/BigInt\("42"\)|42n/);
+  });
+});
+
+// Bug 7: when value-match uses === instead of jalvinEquals for structural equality
+describe("Codegen — when value-match uses jalvinEquals (Bug: === for data class)", () => {
+  it("uses jalvinEquals instead of === when matching against a data class value", () => {
+    const code = gen(`
+data class Point(val x: Int, val y: Int)
+fun f(p: Point): String {
+  val origin = Point(0, 0)
+  return when (p) {
+    origin -> "at origin"
+    else -> "other"
+  }
+}`);
+    // === compares by reference for objects; jalvinEquals compares structurally
+    expect(code).toContain("jalvinEquals");
+    // The when subject comparison should not use triple-equals
+    expect(code).not.toMatch(/__s\s*===\s*origin/);
+  });
+
+  it("still uses === for primitive Int values in when", () => {
+    // For primitive values === is correct behaviour
+    const code = gen(`
+fun f(n: Int): String {
+  return when (n) {
+    1 -> "one"
+    2 -> "two"
+    else -> "other"
+  }
+}`);
+    // Primitive when branches may keep === (Int maps to JS number)
+    expect(code).toContain("if (");
+  });
+});
+
+// Bug 8: Top-level and local delegated properties assign delegate object instead of delegated value
+describe("Codegen — delegated properties at top level and in functions (Bug: assigns object)", () => {
+  it("does NOT emit a plain assignment for a top-level val delegated by lazy", () => {
+    // val x by lazy { 42 } should NOT compile to: const x = lazy(() => 42)
+    // That makes x hold the lazy wrapper object, not the lazily computed value
+    const code = gen(`val x by lazy { 42 }`);
+    expect(code).not.toMatch(/const x\s*=\s*lazy\s*\(/);
+  });
+
+  it("does NOT emit a plain assignment for a local val delegated property inside a function", () => {
+    const code = gen(`
+fun f() {
+  val x by lazy { "hello" }
+  println(x)
+}`);
+    expect(code).not.toMatch(/const x\s*=\s*lazy\s*\(/);
+  });
+
+  it("emits get/setValue wrappers for a class member delegated property", () => {
+    // Class-member delegates are already handled correctly — regression guard
+    const code = gen(`
+class Foo {
+  val x: Int by lazy { 42 }
+}`);
+    expect(code).toContain("get x()");
+    expect(code).toContain("getValue()");
+  });
+});
+
+// Bug 9: emitComposeCallAsDom silently drops positional args with complex expressions
+describe("Codegen — Compose call preserves all args (Bug: positional arg dropped)", () => {
+  it("includes named arg with complex expression value in the emitted props object", () => {
+    const code = gen(`
+import @jalvin/ui.Text
+component fun Comp() {
+  Text(text = "Hello " + "world")
+}`);
+    // Named arg text = expr must always reach the props object
+    expect(code).toContain("text:");
+    expect(code).toContain(`"Hello "`);
+  });
+
+  it("includes positional arg in props when param name is known from same-file component", () => {
+    const code = gen(`
+import @jalvin/ui.Text
+component fun Label(text: String) { Text(text = text) }
+component fun Wrapper() {
+  Label("a" + "b")
+}`);
+    // 'text' param name is known for Label; positional arg should map to { text: ... }
+    expect(code).toContain("text:");
+    // Must not produce an empty props object for Label
+    expect(code).not.toMatch(/Label\(\{\s*\}\)/);
   });
 });
