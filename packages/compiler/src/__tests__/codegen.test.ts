@@ -401,6 +401,37 @@ component fun Hr() {
     const code = gen(`component fun Foo() { return (<div />) }`);
     expect(code).not.toContain("HTMLElement");
   });
+
+  it("emits children as second positional param, not in props destructure", () => {
+    const code = gen(`component fun DocPage(title: String, children: Any) { return (<div />) }`);
+    // children must NOT appear inside the props destructure
+    expect(code).not.toMatch(/\{\s*[^}]*children[^}]*\}\s*:/);
+    // children must appear as a second parameter
+    expect(code).toMatch(/function DocPage\(\s*\{[^}]*title[^}]*\}[^,]*,\s*children\?\s*:/);
+  });
+
+  it("excludes children from the Props interface", () => {
+    const code = gen(`component fun DocPage(title: String, children: Any) { return (<div />) }`);
+    // Props interface should not contain a children field
+    const propsBlock = code.match(/interface DocPageProps \{[^}]*\}/)?.[0] ?? "";
+    expect(propsBlock).not.toContain("children");
+    expect(propsBlock).toContain("title");
+  });
+
+  it("call site passes trailing-lambda as second arg matching children param", () => {
+    const code = gen(`
+      import @jalvin/ui.Column
+      import @jalvin/ui.Text
+      component fun DocPage(title: String, children: Any) {
+        return Column() { children }
+      }
+      component fun App() {
+        return DocPage(title = "Hello") { Text(text = "hi") }
+      }
+    `);
+    // Call site: second arg is an array of children, matching the second param
+    expect(code).toContain(`DocPage({ title: "Hello" }, [`);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -439,13 +439,17 @@ export class CodeGenerator {
     this.emitAnnotations(decl.modifiers);
     this.hasComponents = true;
     const vis = this.exportPrefix(decl.modifiers);
-    const params = this.emitComponentPropsStr(decl.params);
 
-    // Props interface
-    if (decl.params.length > 0) {
+    // "children" is passed as the second positional argument by emitComposeCallAsDom,
+    // so it must NOT be destructured from the props object.
+    const propsParams = decl.params.filter((p) => p.name !== "children");
+    const hasChildren = decl.params.some((p) => p.name === "children");
+
+    // Props interface (excludes children)
+    if (propsParams.length > 0) {
       this.w.writeIndentedLine(`interface ${decl.name}Props {`);
       this.w.pushIndent();
-      for (const p of decl.params) {
+      for (const p of propsParams) {
         const optional = p.defaultValue ? "?" : "";
         const typeStr = this.opts.emitTypes ? this.emitTypeRef(p.type) : "any";
         this.w.writeIndentedLine(`readonly ${p.name}${optional}: ${typeStr};`);
@@ -455,11 +459,13 @@ export class CodeGenerator {
       this.w.writeLine();
     }
 
-    const propsParam = decl.params.length > 0
-      ? `{ ${decl.params.map((p) => p.name + (p.defaultValue ? ` = ${this.emitExpr(p.defaultValue)}` : "")).join(", ")} }: ${decl.name}Props`
+    const propsDestructure = propsParams.length > 0
+      ? `{ ${propsParams.map((p) => p.name + (p.defaultValue ? ` = ${this.emitExpr(p.defaultValue)}` : "")).join(", ")} }: ${decl.name}Props`
       : "";
+    const childrenParam = hasChildren ? "children?: any[]" : "";
+    const allParams = [propsDestructure, childrenParam].filter(Boolean).join(", ");
 
-    this.w.writeIndentedLine(`${vis}function ${decl.name}(${propsParam}) {`);
+    this.w.writeIndentedLine(`${vis}function ${decl.name}(${allParams}) {`);
     this.w.pushIndent();
     this.emitComponentBlock(decl.body);
     this.w.popIndent();
