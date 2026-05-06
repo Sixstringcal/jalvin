@@ -432,6 +432,24 @@ component fun Hr() {
     // Call site: second arg is an array of children, matching the second param
     expect(code).toContain(`DocPage({ title: "Hello" }, [`);
   });
+
+  it("children-only component emits {} first param to absorb empty props object", () => {
+    const code = gen(`component fun DocTheme(children: Any) { return (<div />) }`);
+    // Must NOT be: function DocTheme(children?: any[])  ← would eat the {} from call site
+    // Must be:     function DocTheme({}, children?: any[])
+    expect(code).toMatch(/function DocTheme\(\{\},\s*children\?\s*:/);
+  });
+
+  it("children-only component call site still emits ({}, [children])", () => {
+    const code = gen(`
+      import @jalvin/ui.Text
+      component fun DocTheme(children: Any) { return (<div />) }
+      component fun App() {
+        return DocTheme() { Text(text = "hi") }
+      }
+    `);
+    expect(code).toContain(`DocTheme({}, [`);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

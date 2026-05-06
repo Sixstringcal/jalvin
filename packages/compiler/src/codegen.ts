@@ -461,6 +461,9 @@ export class CodeGenerator {
 
     const propsDestructure = propsParams.length > 0
       ? `{ ${propsParams.map((p) => p.name + (p.defaultValue ? ` = ${this.emitExpr(p.defaultValue)}` : "")).join(", ")} }: ${decl.name}Props`
+      // When children is the only param, emit an empty `{}` to absorb the props object
+      // that call sites always emit as the first argument: DocTheme({}, [content])
+      : hasChildren ? `{}`
       : "";
     const childrenParam = hasChildren ? "children?: any[]" : "";
     const allParams = [propsDestructure, childrenParam].filter(Boolean).join(", ");
