@@ -2209,7 +2209,12 @@ export class Parser {
 
     if (this.check(TokenKind.Star)) { spread = true; this.advance(); }
 
-    if (this.check(TokenKind.Identifier) && this.checkNext(TokenKind.Eq)) {
+    // Allow any identifier-shaped token (including keywords like `as`, `in`, `is`)
+    // as a named argument label when followed by `=`.
+    const curTok = this.current();
+    const curIsIdentLike = curTok.kind === TokenKind.Identifier ||
+      (curTok.text.match(/^[a-zA-Z_][a-zA-Z0-9_]*$/) !== null);
+    if (curIsIdentLike && this.checkNext(TokenKind.Eq)) {
       name = this.advance().text;
       this.advance(); // =
     }

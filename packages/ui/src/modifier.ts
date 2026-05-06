@@ -42,6 +42,7 @@ export class Modifier {
   static cursor(v: string):           Modifier { return new Modifier().cursor(v); }
   static zIndex(v: number):           Modifier { return new Modifier().zIndex(v); }
   static overflow(v: "visible" | "hidden" | "scroll" | "auto"): Modifier { return new Modifier().overflow(v); }
+  static whiteSpace(v: "normal" | "nowrap" | "pre" | "pre-wrap" | "pre-line" | "break-spaces"): Modifier { return new Modifier().whiteSpace(v); }
   static marginTop(v: number | string):    Modifier { return new Modifier().marginTop(v); }
   static marginBottom(v: number | string): Modifier { return new Modifier().marginBottom(v); }
   static marginLeft(v: number | string):   Modifier { return new Modifier().marginLeft(v); }
@@ -132,6 +133,9 @@ export class Modifier {
   }
   overflowY(v: "visible" | "hidden" | "scroll" | "auto"): Modifier {
     return this.with({ overflowY: v });
+  }
+  whiteSpace(v: "normal" | "nowrap" | "pre" | "pre-wrap" | "pre-line" | "break-spaces"): Modifier {
+    return this.with({ whiteSpace: v });
   }
   position(v: "relative" | "absolute" | "fixed" | "sticky" | "static"): Modifier {
     return this.with({ position: v });

@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { lex } from "../../dist/lexer.js";
 import { parse } from "../../dist/parser.js";
+import { compile } from "../../dist/index.js";
 import { DiagnosticBag } from "../../dist/diagnostics.js";
-import type { Program, FunDecl, ClassDecl, DataClassDecl, Block, PropertyDecl, CallExpr, MemberExpr, NameExpr } from "../../dist/ast.js";
+import type { Program, FunDecl, ClassDecl, DataClassDecl, Block, PropertyDecl, CallExpr, MemberExpr, NameExpr, ExprStmt } from "../../dist/ast.js";
 
 function parseSource(src: string): { program: Program; diag: DiagnosticBag } {
   const diag = new DiagnosticBag();
@@ -539,5 +540,29 @@ describe("Parser — explicit type parameters on call expressions", () => {
       `fun f(cond: Boolean) { val xs = mutableListOf(if (cond) "a" else "b") }`
     );
     expect(diag.hasErrors).toBe(false);
+  });
+});
+
+describe("Parser — keyword tokens as named argument labels", () => {
+  it("parses `as` as a named argument label without error", () => {
+    const { diag } = parseSource(`fun f() { Text(as = "pre") }`);
+    expect(diag.hasErrors).toBe(false);
+  });
+
+  it("produces a CallArg with name = 'as' for as = ...", () => {
+    const { program, diag } = parseSource(`fun f() { Text(as = "pre") }`);
+    expect(diag.hasErrors).toBe(false);
+    const fn = program.declarations[0] as FunDecl;
+    const body = fn.body as Block;
+    const call = (body.statements[0] as ExprStmt).expr as CallExpr;
+    expect(call.args[0]!.name).toBe("as");
+  });
+
+  it("compiles Text(as = 'pre') to Text({ as: 'pre' })", () => {
+    const { code } = compile(`
+      import @jalvin/ui.Text
+      component fun App() { return Text(as = "pre") }
+    `);
+    expect(code).toContain(`Text({ as: "pre" })`);
   });
 });
