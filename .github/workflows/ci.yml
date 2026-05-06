@@ -43,3 +43,6 @@ jobs:
 
       - name: Test — runtime stdlib
         run: pnpm --filter @jalvin/runtime test
+
+      - name: Test — ui components
+        run: pnpm --filter @jalvin/ui test

@@ -8,11 +8,10 @@ export interface TextProps {
   /** Shorthand for text content when no JSX children needed */
   text?: string;
   modifier?: Modifier;
+  /** Typography style — use TextStyle tokens (e.g. TextStyle.headlineLarge) */
   style?: TextStyleDef | CSSProperties;
   color?: string;
   maxLines?: number;
-  /** HTML tag to render — defaults to "span" */
-  as?: "p" | "span" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "label" | "code" | "pre" | "strong" | "em";
 }
 
 /** Text element — analogous to Compose's Text. */
@@ -23,11 +22,9 @@ export function Text({
   style,
   color,
   maxLines,
-  as: Tag = "span",
 }: TextProps): React.ReactElement {
   const modProps = modifier?.toProps() ?? {};
   const textStyle: CSSProperties = style ? textStyleToCSS(style as TextStyleDef) : {};
-
   const clampStyle: CSSProperties = maxLines !== undefined ? {
     display: "-webkit-box",
     WebkitLineClamp: maxLines,
@@ -35,7 +32,7 @@ export function Text({
     overflow: "hidden",
   } : {};
 
-  return React.createElement(Tag, {
+  return React.createElement("span", {
     ...modProps,
     style: {
       ...textStyle,

@@ -1,6 +1,6 @@
 {
   "name": "@jalvin/ui",
-  "version": "2.0.24",
+  "version": "2.0.25",
   "description": "Jalvin UI — Compose-style component library (Column, Row, Box, Button, Text, …)",
   "type": "module",
   "main": "dist/index.js",
@@ -11,20 +11,30 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "publishConfig": { "access": "public" },
-  "files": ["dist"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "peerDependencies": {
     "react": ">=18.0.0"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^20.0.0",
     "@types/react": "^18.0.0",
+    "jsdom": "^29.1.1",
     "react": "^19.2.5",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "vitest": "^2.1.9"
   }
 }
