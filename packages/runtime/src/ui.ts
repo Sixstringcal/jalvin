@@ -49,23 +49,29 @@ export interface MutableState<T> {
 export function mutableStateOf<T>(initial: T): MutableState<T> {
   const R = getReact();
   const [v, setV] = R.useState<T>(initial);
-  const ref = R.useRef<MutableState<T>>({ value: v });
+  // stateRef tracks the latest React state value. Updated on every render so
+  // the value getter always returns the current value, not the initial one.
+  const stateRef = R.useRef<T>(v);
+  const holderRef = R.useRef<MutableState<T> | null>(null);
 
-  if (!Object.getOwnPropertyDescriptor(ref.current, "__setup")) {
-    Object.defineProperties(ref.current, {
-      __setup: { value: true, writable: false },
+  stateRef.current = v;
+
+  if (holderRef.current === null) {
+    const holder = {} as MutableState<T>;
+    Object.defineProperties(holder, {
       value: {
-        get() { return v; },
+        get() { return stateRef.current; },
         set(next: T) {
-          if (!Object.is(v, next)) setV(next);
+          if (!Object.is(stateRef.current, next)) setV(next);
         },
         enumerable: true,
         configurable: false,
       },
     });
+    holderRef.current = holder;
   }
 
-  return ref.current;
+  return holderRef.current;
 }
 
 // ---------------------------------------------------------------------------

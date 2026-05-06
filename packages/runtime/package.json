@@ -1,6 +1,6 @@
 {
   "name": "@jalvin/runtime",
-  "version": "2.0.22",
+  "version": "2.0.23",
   "description": "Jalvin runtime — Bibi HTTP client, coroutines, StateFlow, ViewModel, UI hooks",
   "main": "dist/index.js",
   "module": "dist/index.js",

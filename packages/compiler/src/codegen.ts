@@ -134,6 +134,11 @@ export class CodeGenerator {
   private externalStarCandidates = new Set<string>();
   /** Module specifiers whose symbols are already covered by a named star-import expansion. */
   private handledStarImportModules = new Set<string>();
+  /**
+   * Exported symbol names from local .jalvin files imported via wildcard (import src.module.*).
+   * Maps module specifier (e.g. "src/views") → sorted list of exported names.
+   */
+  private localStarExports = new Map<string, string[]>();
 
   constructor(opts: Partial<CodegenOptions> = {}) {
     this.opts = { ...DEFAULT_CODEGEN_OPTIONS, ...opts };
@@ -296,6 +301,11 @@ export class CodeGenerator {
         const symbols = [...this.externalStarCandidates].sort();
         this.w.writeIndentedLine(`import { ${symbols.join(", ")} } from "${moduleSpecifier}";`);
         this.handledStarImportModules.add(moduleSpecifier);
+      } else if (imp.star && !isScoped && this.localStarExports.has(moduleSpecifier)) {
+        // Local wildcard import: import src.module.* — expand to named imports
+        // so all exported symbols are directly in scope (no namespace qualifier needed).
+        const symbols = this.localStarExports.get(moduleSpecifier)!.slice().sort();
+        this.w.writeIndentedLine(`import { ${symbols.join(", ")} } from "${moduleSpecifier}";`);
       } else if (imp.star) {
         // Fallback: namespace import (multiple scoped star imports or no candidates).
         this.w.writeIndentedLine(`import * as ${imp.path[imp.path.length - 1]!} from "${moduleSpecifier}";`);
@@ -1742,10 +1752,46 @@ export class CodeGenerator {
    * call sites can emit the correct props-object invocation.
    */
   private resolveLocalComponentImports(program: AST.Program, sourceRoot: string): void {
+    this.localStarExports.clear();
     for (const imp of program.imports) {
-      // Skip scoped packages (@org/pkg) and star imports
-      if (imp.star || imp.path[0]?.startsWith("@")) continue;
-      // Need at least 2 path segments: the last is the symbol, the rest form the file path
+      // Skip scoped packages (@org/pkg)
+      if (imp.path[0]?.startsWith("@")) continue;
+
+      if (imp.star) {
+        // Local wildcard import: import src.module.* — load all exports from src/module.jalvin
+        if (imp.path.length < 1) continue;
+        const candidatePath = nodePath.join(sourceRoot, imp.path.join("/") + ".jalvin");
+        if (!fs.existsSync(candidatePath)) continue;
+        try {
+          const source = fs.readFileSync(candidatePath, "utf8");
+          const diag = new DiagnosticBag();
+          const tokens = lex(source, candidatePath, diag);
+          if (diag.hasErrors) continue;
+          const ast = parse(tokens, candidatePath, diag, source);
+          if (diag.hasErrors) continue;
+
+          const moduleSpecifier = imp.path.join("/");
+          const exportedNames: string[] = [];
+          for (const d of ast.declarations) {
+            const name = (d as { name?: string }).name;
+            if (!name) continue;
+            exportedNames.push(name);
+            if (d.kind === "ComponentDecl") {
+              this.componentNames.add(name);
+              this.componentParamNames.set(name, d.params.map((p) => p.name));
+              this.hasComponents = true;
+            }
+          }
+          if (exportedNames.length > 0) {
+            this.localStarExports.set(moduleSpecifier, exportedNames);
+          }
+        } catch {
+          // Silently skip if the file cannot be read or parsed
+        }
+        continue;
+      }
+
+      // Named import: last path segment is the symbol, preceding segments form the file path
       if (imp.path.length < 2) continue;
 
       const rawSymbolName = imp.path[imp.path.length - 1]!;
@@ -1830,12 +1876,36 @@ export class CodeGenerator {
     return `${tag}(${propsStr})`;
   }
 
-  /** Collect each expression statement in a trailing-lambda body as DOM children. */
+  /** Collect each expression statement in a trailing-lambda body as DOM children.
+   *  For-loop statements are emitted as spread IIFEs so their dynamic output is preserved. */
   private emitLambdaBodyAsDomChildren(lambda: AST.LambdaExpr): string {
-    return lambda.body
-      .filter((stmt) => stmt.kind === "ExprStmt")
-      .map((stmt) => this.emitExpr((stmt as AST.ExprStmt).expr))
-      .join(", ");
+    const parts: string[] = [];
+    for (const stmt of lambda.body) {
+      if (stmt.kind === "ExprStmt") {
+        parts.push(this.emitExpr((stmt as AST.ExprStmt).expr));
+      } else if (stmt.kind === "ForStmt") {
+        const s = stmt as AST.ForStmt;
+        const iter = this.emitExpr(s.iterable);
+        let bindingStr: string;
+        if (typeof s.binding === "string") {
+          bindingStr = `const ${s.binding}`;
+        } else if (s.binding.kind === "TupleDestructure") {
+          const names = s.binding.names.map((n) => n ?? "_").join(", ");
+          bindingStr = `const [${names}]`;
+        } else {
+          bindingStr = `const [${s.binding.key}, ${s.binding.value}]`;
+        }
+        const innerExprs = s.body.statements
+          .filter((inner) => inner.kind === "ExprStmt")
+          .map((inner) => this.emitExpr((inner as AST.ExprStmt).expr));
+        if (innerExprs.length > 0) {
+          const pushes = innerExprs.map((e) => `__c.push(${e});`).join(" ");
+          parts.push(`...(() => { const __c: any[] = []; for (${bindingStr} of ${iter}) { ${pushes} } return __c; })()`);
+        }
+      }
+      // Other statement kinds (if, while, etc.) are not renderable as UI children inline
+    }
+    return parts.join(", ");
   }
 
   private emitLambdaExpr(expr: AST.LambdaExpr): string {

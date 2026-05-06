@@ -453,6 +453,74 @@ component fun Hr() {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Bug-fix tests — v2.0.22  (for loops, local star imports)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Codegen — for loops inside trailing lambdas", () => {
+  it("emits a spread IIFE for a for-loop inside a component trailing lambda", () => {
+    const code = gen(`
+      import @jalvin/ui.Column
+      import @jalvin/ui.Text
+      component fun App() {
+        val items = listOf("a", "b")
+        return Column() {
+          for (item in items) {
+            Text(text = item)
+          }
+        }
+      }
+    `);
+    // The for loop body must appear as spread IIFE children, not be silently dropped
+    expect(code).toMatch(/\.\.\.\(\(\) =>/);
+    expect(code).toContain("__c.push(");
+    expect(code).toContain(`Text({ text: item })`);
+  });
+
+  it("mixes plain children and for-loop children correctly", () => {
+    const code = gen(`
+      import @jalvin/ui.Column
+      import @jalvin/ui.Text
+      component fun App() {
+        val items = listOf("a")
+        return Column() {
+          Text(text = "header")
+          for (item in items) { Text(text = item) }
+        }
+      }
+    `);
+    expect(code).toContain(`Text({ text: "header" })`);
+    expect(code).toContain("__c.push(");
+  });
+});
+
+describe("Codegen — local wildcard imports", () => {
+  let tmpDir: string;
+  beforeEach(() => { tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jalvin-star-")); });
+  afterEach(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
+
+  it("expands import src.views.* to named imports and registers component names", () => {
+    // Write a sibling .jalvin file with exported components at src/views.jalvin
+    fs.mkdirSync(path.join(tmpDir, "src"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, "src", "views.jalvin"), `
+      import @jalvin/ui.Text
+      component fun Header(title: String) { return Text(text = title) }
+      component fun Footer() { return Text(text = "footer") }
+    `);
+    const result = compile(`
+      import src.views.*
+      component fun App() {
+        return Header(title = "Hi")
+      }
+    `, "<stdin>", { sourceRoot: tmpDir });
+    // Should emit named imports for Header and Footer, not a namespace import
+    expect(result.code).toContain("import { Footer, Header }");
+    expect(result.code).not.toContain("import * as");
+    // Header call should be emitted as a Compose-style component call
+    expect(result.code).toContain(`Header({ title: "Hi" })`);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Bug-fix tests — v2.0.13
 // ─────────────────────────────────────────────────────────────────────────────
 
