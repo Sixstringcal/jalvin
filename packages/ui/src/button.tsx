@@ -13,7 +13,7 @@ export interface ButtonProps {
   type?: "button" | "submit" | "reset";
 }
 
-/** Button — analogous to Compose's Button / OutlinedButton / TextButton. */
+/** Button element. */
 export function Button(
   { text, innerHTML: html, onClick, modifier, enabled = true, type = "button" }: ButtonProps,
   children?: React.ReactNode[]

@@ -11,7 +11,7 @@ export interface SpacerProps {
   modifier?: Modifier;
 }
 
-/** Flexible or fixed-size spacer — analogous to Compose's Spacer. */
+/** Flexible or fixed-size spacer. */
 export function Spacer({ width, height, weight, modifier }: SpacerProps): React.ReactElement {
   const modProps = modifier?.toProps() ?? {};
   return React.createElement("div", {
@@ -34,7 +34,7 @@ export interface DividerProps {
   orientation?: "horizontal" | "vertical";
 }
 
-/** Thin line divider — analogous to Compose's Divider / VerticalDivider. */
+/** Thin line divider. */
 export function Divider({
   modifier,
   color = "#c4c4c4",

@@ -31,7 +31,7 @@ export interface ColumnProps {
   horizontalAlignment?: Alignment;
 }
 
-/** Vertical flex container — analogous to Compose's Column. */
+/** Vertical flex container. */
 export function Column(
   { modifier, spacing, verticalArrangement = "start", horizontalAlignment = "start" }: ColumnProps,
   children?: React.ReactNode[]
@@ -58,7 +58,7 @@ export interface RowProps {
   wrap?: boolean;
 }
 
-/** Horizontal flex container — analogous to Compose's Row. */
+/** Horizontal flex container. */
 export function Row(
   { modifier, spacing, horizontalArrangement = "start", verticalAlignment = "center", wrap = false }: RowProps,
   children?: React.ReactNode[]
@@ -83,7 +83,7 @@ export interface BoxProps {
   contentAlignment?: "topStart" | "topCenter" | "topEnd" | "centerStart" | "center" | "centerEnd" | "bottomStart" | "bottomCenter" | "bottomEnd";
 }
 
-/** Positioned container — analogous to Compose's Box. */
+/** Positioned container. */
 export function Box(
   { modifier, contentAlignment = "topStart" }: BoxProps,
   children?: React.ReactNode[]

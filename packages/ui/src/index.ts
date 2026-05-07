@@ -1,4 +1,4 @@
-// @jalvin/ui — Compose-style React component library
+// @jalvin/ui — Jalvin UI component library
 //
 // Usage example (in a .jalvin file):
 //   import @jalvin/ui.Column
@@ -25,6 +25,18 @@ export { Text } from "./text.js";
 export type { TextProps } from "./text.js";
 export { TextStyle } from "./typography.js";
 export type { TextStyleDef, TextStyleKey } from "./typography.js";
+export {
+  TextDecoration,
+  buildAnnotatedString,
+  LinkAnnotation,
+  renderAnnotatedString,
+} from "./annotated-string.js";
+export type {
+  SpanStyle,
+  TextLinkStyles,
+  AnnotatedString,
+  StringRange,
+} from "./annotated-string.js";
 
 // Input
 export { Input } from "./input.js";

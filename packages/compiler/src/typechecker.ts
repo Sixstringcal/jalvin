@@ -85,8 +85,8 @@ const JS_GLOBALS = new Set([
 export function nullable(t: JType): JType {
   if (t.tag === "nullable") return t;
   // Note: Nothing? is kept as nullable(nothing), not collapsed to Unit.
-  // In Kotlin semantics Nothing? is the type of `null` and is assignable
-  // to every nullable type, which isAssignable() handles correctly.
+  // Nothing? is the type of `null` and is assignable to every nullable type,
+  // which isAssignable() handles correctly.
   return { tag: "nullable", inner: t };
 }
 
@@ -629,7 +629,7 @@ export class TypeChecker {
     const concreteMembers = new Set<string>();
 
     // Build a class-level scope so that methods can call sibling members and
-    // reference `this` by bare name — mirroring Kotlin's behaviour.
+    // reference `this` by bare name.
     const classScope = new Scope(this.scope);
     classScope.define({
       name: "this",

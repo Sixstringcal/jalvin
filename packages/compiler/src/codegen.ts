@@ -107,7 +107,7 @@ export class CodeGenerator {
   private readonly opts: CodegenOptions;
   private hasComponents = false;
   private runtimeSymbolsNeeded = new Set<string>();
-  /** Names of component functions — used to detect Compose-style calls and emit them as JSX */
+  /** Names of component functions — used to detect component calls and emit them as JSX */
   private componentNames = new Set<string>();
   /**
    * Param names for components resolved from imported local .jalvin files.
@@ -157,7 +157,7 @@ export class CodeGenerator {
         (d.kind === "ClassDecl" && d.body?.members.some((m) => m.kind === "ComponentDecl"))
     ) || program.imports.some((imp) => imp.path[0] === "@jalvin" && imp.path[1] === "ui");
 
-    // Collect component names for Compose-style call detection
+    // Collect component names for component call detection
     this.componentNames = new Set<string>();
     this.componentParamNames = new Map<string, string[]>();
     for (const decl of program.declarations) {
@@ -450,7 +450,7 @@ export class CodeGenerator {
     this.hasComponents = true;
     const vis = this.exportPrefix(decl.modifiers);
 
-    // "children" is passed as the second positional argument by emitComposeCallAsDom,
+    // "children" is passed as the second positional argument by emitComponentCall,
     // so it must NOT be destructured from the props object.
     const propsParams = decl.params.filter((p) => p.name !== "children");
     const hasChildren = decl.params.some((p) => p.name === "children");
@@ -489,7 +489,7 @@ export class CodeGenerator {
    * Emit the body of a `component fun` block.
    * The last statement is emitted in tail position — if it is an expression,
    * an if/else chain, or a when block, the innermost UI call is implicitly
-   * returned (Kotlin-style implicit return of the last expression).
+   * returned (implicit return of the last expression).
    */
   private emitComponentBlock(block: AST.Block): void {
     const stmts = block.statements;
@@ -1388,7 +1388,7 @@ export class CodeGenerator {
         if (expr.name === "Int" || expr.name === "Long") {
           this.runtimeSymbolsNeeded.add(expr.name);
         }
-        // Unit singleton emits as undefined (matches Kotlin/JVM void semantics)
+        // Unit singleton emits as undefined (void semantics)
         if (expr.name === "Unit") return "undefined";
         return expr.name;
       case "ThisExpr":          return "this";
@@ -1677,13 +1677,13 @@ export class CodeGenerator {
     // Handle named arguments by reordering them to match positional parameters
     const calleeType = this.typeMap.get(expr.callee);
 
-    // Compose-style component call: Column(modifier = ...) { ... } → Column({ modifier: ... }, [children])
+    // Component call: Column(modifier = ...) { ... } → Column({ modifier: ... }, [children])
     // Also catches star-imported @jalvin/ui primitives (Row, Button, etc.) whose type is T_UNKNOWN
     if (expr.callee.kind === "NameExpr" && (
       this.componentNames.has(expr.callee.name) ||
       (this.hasUiStarImport && (!calleeType || calleeType.tag === "unknown") && /^[A-Z]/.test(expr.callee.name))
     )) {
-      return this.emitComposeCallAsDom(expr);
+      return this.emitComponentCall(expr);
     }
     let finalArgs: string[] = [];
 
@@ -1841,10 +1841,10 @@ export class CodeGenerator {
     return false;
   }
 
-  // ── Compose-style component call → DOM ──────────────────────────────────────
+  // ── Component call → props object ──────────────────────────────────────
 
   /** Emit `Column(modifier = ...) { ... }` as `Column({ modifier: ... }, [children])` */
-  private emitComposeCallAsDom(expr: AST.CallExpr): string {
+  private emitComponentCall(expr: AST.CallExpr): string {
     const tag = (expr.callee as AST.NameExpr).name;
     const calleeType = this.typeMap.get(expr.callee);
     // Param names from type checker (for same-file components) or resolved from imported files

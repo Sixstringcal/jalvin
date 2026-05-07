@@ -12,7 +12,7 @@ Design goals:
 - Structured concurrency with `launch {}` and `async {}`.
 - Safe-by-default null handling with `T?`, `?.`, `?:`, `!!`.
 - Seamless interop with the npm ecosystem.
-- Bibi HTTP client always capitalised — named in honour of Benjamin Netanyahu.
+- Bibi HTTP client
 
 ---
 
@@ -985,7 +985,103 @@ val id = randomUUID() // RFC 4122 v4 UUID string
 
 ---
 
-## 25 Exhaustive `when` on enum classes
+## 25 Inline links and styled text (`AnnotatedString`)
+
+`Text` accepts either a plain `String` or an `AnnotatedString` — a string that carries inline style spans and clickable / URL links.
+
+### 25.1 `buildAnnotatedString {}`
+
+```jalvin
+val text = buildAnnotatedString {
+    append("Click ")
+    withLink(LinkAnnotation.Url("https://jalvin.dev")) {
+        withStyle(SpanStyle(color = "#0057d8", textDecoration = TextDecoration.Underline)) {
+            append("the docs")
+        }
+    }
+    append(" or ")
+    withLink(LinkAnnotation.Clickable("open-dialog", { tag -> openDialog(tag) })) {
+        append("open the dialog")
+    }
+    append(".")
+}
+
+Text(text = text, style = TextStyle.bodyLarge)
+```
+
+### 25.2 `SpanStyle`
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `color` | `String?` | Foreground colour (CSS value) |
+| `fontSize` | `String?` | Font size (CSS value, e.g. `"1.2rem"`) |
+| `fontWeight` | `Int?` or `"bold"` / `"normal"` | Font weight |
+| `fontStyle` | `"italic"` or `"normal"` | Italic |
+| `fontFamily` | `String?` | Font family |
+| `letterSpacing` | `String?` | Letter spacing (CSS value) |
+| `background` | `String?` | Background colour |
+| `textDecoration` | `TextDecoration?` | Underline, line-through, or combined |
+
+### 25.3 `TextDecoration`
+
+```jalvin
+TextDecoration.None
+TextDecoration.Underline
+TextDecoration.LineThrough
+TextDecoration.Underline + TextDecoration.LineThrough   // combined
+```
+
+### 25.4 `LinkAnnotation`
+
+```jalvin
+// Opens a URL in a new tab
+LinkAnnotation.Url("https://example.com")
+LinkAnnotation.Url("https://example.com", styles = TextLinkStyles(
+    style = SpanStyle(color = "#0057d8")
+))
+
+// Fires a callback with the tag string
+LinkAnnotation.Clickable("my-tag", { tag -> handleClick(tag) })
+LinkAnnotation.Clickable("my-tag", { tag -> handleClick(tag) }, styles = TextLinkStyles(
+    style         = SpanStyle(color = "#333"),
+    hoveredStyle  = SpanStyle(color = "#000")
+))
+```
+
+### 25.5 `TextLinkStyles`
+
+```jalvin
+TextLinkStyles(
+    style        = SpanStyle(...),
+    focusedStyle = SpanStyle(...),
+    hoveredStyle = SpanStyle(...),
+    pressedStyle = SpanStyle(...)
+)
+```
+
+### 25.6 Lower-level builder API
+
+```jalvin
+val text = buildAnnotatedString {
+    // Push / pop style manually
+    pushStyle(SpanStyle(fontWeight = "bold"))
+    append("bold text")
+    pop()
+
+    // Add a style span to a known range
+    addStyle(SpanStyle(color = "#f00"), start = 0, end = 4)
+
+    // Add a link to a known range
+    addLink(LinkAnnotation.Url("https://example.com"), start = 5, end = 10)
+
+    // Append another AnnotatedString (offsets are adjusted automatically)
+    append(otherAnnotatedString)
+}
+```
+
+---
+
+## 26 Exhaustive `when` on enum classes
 
 `when` on an `enum class` subject must cover all entries (or supply an `else`). Missing entries produce `E0300`.
 

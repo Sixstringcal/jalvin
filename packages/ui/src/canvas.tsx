@@ -20,7 +20,7 @@ function joinClassNames(...classNames: Array<string | undefined>): string | unde
   return value.length > 0 ? value : undefined;
 }
 
-/** Canvas drawing surface — analogous to Compose's Canvas. */
+/** Canvas drawing surface. */
 export function Canvas({
   modifier,
   width,

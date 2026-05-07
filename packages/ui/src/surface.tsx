@@ -16,7 +16,7 @@ const SHADOWS = [
   "0 10px 20px rgba(0,0,0,0.12), 0 3px 6px rgba(0,0,0,0.09)",
 ] as const;
 
-/** Card container — analogous to Compose's Card / ElevatedCard. */
+/** Card container. */
 export function Card(
   {
     modifier,
@@ -52,8 +52,7 @@ export interface ScaffoldProps {
 }
 
 /**
- * Full-page layout scaffold — analogous to Compose's Scaffold.
- * Stacks topBar, scrollable content, and bottomBar.
+ * Full-page layout scaffold. Stacks topBar, scrollable content, and bottomBar.
  */
 export function Scaffold(
   {
@@ -94,7 +93,7 @@ export interface TopBarProps {
   modifier?: Modifier;
 }
 
-/** App top bar — analogous to Compose's TopAppBar. */
+/** App top bar. */
 export function TopBar({
   title,
   navigationIcon,

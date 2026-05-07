@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Jalvin UI runtime — React hooks for StateFlow, ViewModel, remember, mutableStateOf
 //
-// These are the companion hooks that make Jalvin's Compose-like primitives
+// These are the companion hooks that make Jalvin's UI primitives
 // work inside React components.
 //
 // `component fun` blocks compiled to React components call these hooks.
@@ -79,7 +79,7 @@ export function mutableStateOf<T>(initial: T): MutableState<T> {
 // ---------------------------------------------------------------------------
 
 /**
- * Compute an expensive value once and remember it, like Compose's `remember`.
+ * Compute an expensive value once and remember it.
  *
  *   val scope = remember { CoroutineScope() }
  */

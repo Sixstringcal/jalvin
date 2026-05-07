@@ -1630,8 +1630,8 @@ export class Parser {
         case TokenKind.LParen: {
           const args = this.parseCallArgs();
           let trailingLambda: AST.LambdaExpr | null = null;
-          // Eat ASI-inserted semicolons between ) and { so Compose-style
-          // `foo(args) \n { ... }` works (like Kotlin trailing lambdas).
+          // Eat ASI-inserted semicolons between ) and { so trailing-lambda
+          // syntax `foo(args) \n { ... }` works.
           // Restore position if no { follows so statement boundaries are preserved.
           const savedPosAfterArgs = this.pos;
           while (this.check(TokenKind.Semicolon)) this.advance();

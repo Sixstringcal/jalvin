@@ -2,11 +2,12 @@ import React from "react";
 import { Modifier } from "./modifier.js";
 import { type TextStyleDef, textStyleToCSS } from "./typography.js";
 import type { CSSProperties } from "react";
+import { type AnnotatedString, renderAnnotatedString } from "./annotated-string.js";
 
 export interface TextProps {
   children?: React.ReactNode;
-  /** Shorthand for text content when no JSX children needed */
-  text?: string;
+  /** Plain string content or an AnnotatedString (for inline links / spans). */
+  text?: string | AnnotatedString;
   modifier?: Modifier;
   /** Typography style — use TextStyle tokens (e.g. TextStyle.headlineLarge) */
   style?: TextStyleDef | CSSProperties;
@@ -14,7 +15,7 @@ export interface TextProps {
   maxLines?: number;
 }
 
-/** Text element — analogous to Compose's Text. */
+/** Text element. Accepts plain strings or AnnotatedStrings with inline links and spans. */
 export function Text({
   children,
   text,
@@ -32,6 +33,10 @@ export function Text({
     overflow: "hidden",
   } : {};
 
+  const content = typeof text === "object" && text !== null && "spanStyles" in text
+    ? renderAnnotatedString(text)
+    : (text ?? children);
+
   return React.createElement("span", {
     ...modProps,
     style: {
@@ -40,5 +45,5 @@ export function Text({
       ...clampStyle,
       ...modProps.style,
     },
-  }, text ?? children);
+  }, content);
 }

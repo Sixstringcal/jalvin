@@ -19,7 +19,7 @@ export interface InputProps {
   autoFocus?: boolean;
 }
 
-/** Text input — analogous to Compose's TextField / OutlinedTextField. */
+/** Text input. */
 export function Input({
   value,
   onValueChange,

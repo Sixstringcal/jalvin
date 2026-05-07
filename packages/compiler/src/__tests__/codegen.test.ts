@@ -277,7 +277,7 @@ val counter = mutableStateOf(0)`);
     expect(code).toContain("import { Bibi as Http }");
   });
 
-  it("emits local package import with symbol as filename (Kotlin convention)", () => {
+  it("emits local package import with symbol as filename", () => {
     const code = gen(`import src.models.Rotation`);
     expect(code).toContain(`import { Rotation } from "src/models/Rotation"`);
   });
@@ -515,8 +515,8 @@ describe("Codegen — local wildcard imports", () => {
     // Should emit named imports for Header and Footer, not a namespace import
     expect(result.code).toContain("import { Footer, Header }");
     expect(result.code).not.toContain("import * as");
-    // Header call should be emitted as a Compose-style component call
-    expect(result.code).toContain(`Header({ title: "Hi" })`);
+    // Header call should be emitted as a component call
+    expect(result.code).toContain(`Header({ title: "Hi" })`)
   });
 });
 
@@ -1118,8 +1118,8 @@ class Foo {
   });
 });
 
-// Bug 9: emitComposeCallAsDom silently drops positional args with complex expressions
-describe("Codegen — Compose call preserves all args (Bug: positional arg dropped)", () => {
+// Bug 9: emitComponentCall silently drops positional args with complex expressions
+describe("Codegen — Component call preserves all args (Bug: positional arg dropped)", () => {
   it("includes named arg with complex expression value in the emitted props object", () => {
     const code = gen(`
 import @jalvin/ui.Text

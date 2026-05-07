@@ -16,7 +16,7 @@ const CONTENT_SCALE: Record<NonNullable<ImageProps["contentScale"]>, string> = {
   none: "none",
 };
 
-/** Image element — analogous to Compose's Image. */
+/** Image element. */
 export function Image({
   src,
   alt = "",

@@ -19,7 +19,7 @@ export interface TextAreaProps {
   autoFocus?: boolean;
 }
 
-/** Multiline text input — analogous to Compose's TextField with `singleLine = false`. */
+/** Multiline text input. */
 export function TextArea({
   value,
   onValueChange,

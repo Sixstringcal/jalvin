@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Modifier — fluent builder for layout, spacing, and styling
 //
-// Modelled after Jetpack Compose's Modifier. Every method returns a new
+// Fluent builder for layout, spacing, and styling. Every method returns a new
 // (immutable) Modifier instance so chains can be safely split across
 // variables.
 //

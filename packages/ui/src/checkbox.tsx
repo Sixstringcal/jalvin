@@ -14,7 +14,7 @@ export interface CheckboxProps {
   autoFocus?: boolean;
 }
 
-/** Boolean toggle input — analogous to Compose's Checkbox. */
+/** Boolean toggle input. */
 export function Checkbox({
   checked = false,
   onCheckedChange,
