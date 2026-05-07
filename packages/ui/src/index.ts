@@ -9,6 +9,9 @@
 export { Modifier, applyModifier } from "./modifier.js";
 export type { CSSProperties } from "./modifier.js";
 
+export { MutableInteractionSource, useMutableInteractionSource, useIsHovered, useIsPressed, useIsFocused } from "./interaction.js";
+export type { InteractionSource, Interaction, HoverInteraction, PressInteraction, FocusInteraction } from "./interaction.js";
+
 export { Color } from "./colors.js";
 export type { ColorValue } from "./colors.js";
 

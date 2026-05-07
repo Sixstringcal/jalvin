@@ -76,6 +76,12 @@ export function Canvas({
     ref,
     ...domProps,
     className: joinClassNames(modProps.className, className),
+    onMouseEnter: modProps.onMouseEnter,
+    onMouseLeave: modProps.onMouseLeave,
+    onFocus: modProps.onFocus,
+    onBlur: modProps.onBlur,
+    onMouseDown: modProps.onMouseDown,
+    onMouseUp: modProps.onMouseUp,
     style: {
       width: width !== undefined ? `${width}px` : undefined,
       height: height !== undefined ? `${height}px` : undefined,

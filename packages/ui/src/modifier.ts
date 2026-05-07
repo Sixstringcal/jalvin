@@ -12,13 +12,32 @@
 // DOM-compatible CSS properties — mirrors React's CSSProperties but has no React dependency.
 export type CSSProperties = { [key: string]: string | number | undefined };
 
+import type { MutableInteractionSource } from "./interaction.js";
+
+interface InteractionFlags {
+  readonly hover: boolean;
+  readonly focus: boolean;
+  readonly press: boolean;
+}
+
+const NO_FLAGS: InteractionFlags = { hover: false, focus: false, press: false };
+
 export class Modifier {
   readonly _styles: CSSProperties;
   readonly _classNames: ReadonlyArray<string>;
+  readonly _interactionSource: MutableInteractionSource | undefined;
+  readonly _interactionFlags: InteractionFlags;
 
-  private constructor(styles: CSSProperties = {}, classNames: string[] = []) {
+  private constructor(
+    styles: CSSProperties = {},
+    classNames: string[] = [],
+    interactionSource?: MutableInteractionSource,
+    interactionFlags: InteractionFlags = NO_FLAGS,
+  ) {
     this._styles = styles;
     this._classNames = classNames;
+    this._interactionSource = interactionSource;
+    this._interactionFlags = interactionFlags;
   }
 
   // ── Static factory helpers ─────────────────────────────────────────────────
@@ -51,8 +70,56 @@ export class Modifier {
   // ── Fluent instance methods ────────────────────────────────────────────────
 
   private with(extra: CSSProperties): Modifier {
-    return new Modifier({ ...this._styles, ...extra }, [...this._classNames]);
+    return new Modifier({ ...this._styles, ...extra }, [...this._classNames], this._interactionSource, this._interactionFlags);
   }
+
+  /**
+   * Tracks pointer enter/leave on this component, emitting
+   * `HoverInteraction.Enter` and `HoverInteraction.Exit` into `source`.
+   * Read the current state with `useIsHovered(source)`.
+   *
+   * @example
+   * ```tsx
+   * const source = useMutableInteractionSource();
+   * const isHovered = useIsHovered(source);
+   * Box({ modifier: Modifier.hoverable(source).background(isHovered ? "#eee" : "#fff") })
+   * ```
+   */
+  hoverable(source: MutableInteractionSource): Modifier {
+    return new Modifier(
+      { ...this._styles }, [...this._classNames],
+      source, { ...this._interactionFlags, hover: true },
+    );
+  }
+
+  /**
+   * Tracks keyboard focus on this component, emitting
+   * `FocusInteraction.Focus` and `FocusInteraction.Unfocus` into `source`.
+   * Read the current state with `useIsFocused(source)`.
+   */
+  focusable(source: MutableInteractionSource): Modifier {
+    return new Modifier(
+      { ...this._styles }, [...this._classNames],
+      source, { ...this._interactionFlags, focus: true },
+    );
+  }
+
+  /**
+   * Tracks pointer press/release on this component, emitting
+   * `PressInteraction.Press`, `PressInteraction.Release`, and
+   * `PressInteraction.Cancel` into `source`.
+   * Read the current state with `useIsPressed(source)`.
+   */
+  pressable(source: MutableInteractionSource): Modifier {
+    return new Modifier(
+      { ...this._styles }, [...this._classNames],
+      source, { ...this._interactionFlags, press: true },
+    );
+  }
+
+  static hoverable(source: MutableInteractionSource): Modifier { return new Modifier().hoverable(source); }
+  static focusable(source: MutableInteractionSource): Modifier { return new Modifier().focusable(source); }
+  static pressable(source: MutableInteractionSource): Modifier { return new Modifier().pressable(source); }
 
   fillMaxWidth():  Modifier { return this.with({ width: "100%" }); }
   fillMaxHeight(): Modifier { return this.with({ height: "100%" }); }
@@ -177,29 +244,58 @@ export class Modifier {
 
   /** Append an additional CSS class name. */
   className(name: string): Modifier {
-    return new Modifier(this._styles, [...this._classNames, name]);
+    return new Modifier(this._styles, [...this._classNames, name], this._interactionSource, this._interactionFlags);
   }
 
   /** Merge another Modifier on top of this one. */
   then(other: Modifier): Modifier {
     return new Modifier(
       { ...this._styles, ...other._styles },
-      [...this._classNames, ...other._classNames]
+      [...this._classNames, ...other._classNames],
+      other._interactionSource ?? this._interactionSource,
+      {
+        hover: this._interactionFlags.hover || other._interactionFlags.hover,
+        focus: this._interactionFlags.focus || other._interactionFlags.focus,
+        press: this._interactionFlags.press || other._interactionFlags.press,
+      },
     );
   }
 
-  /** Extract style + className props. */
-  toProps(): { style?: CSSProperties; className?: string } {
+  /** Extract style, className, and interaction event handler props for spreading onto an element. */
+  toProps(): {
+    style?: CSSProperties;
+    className?: string;
+    onMouseEnter?: () => void;
+    onMouseLeave?: () => void;
+    onFocus?: () => void;
+    onBlur?: () => void;
+    onMouseDown?: (e: { clientX: number; clientY: number }) => void;
+    onMouseUp?: () => void;
+  } {
     const hasStyles = Object.keys(this._styles).length > 0;
     const hasClasses = this._classNames.length > 0;
+    const s = this._interactionSource;
+    const f = this._interactionFlags;
+
+    // onMouseLeave may need to combine hover exit AND press cancel.
+    const mouseLeaveHandlers: Array<() => void> = [];
+    if (s && f.hover) mouseLeaveHandlers.push(() => s._handleMouseLeave());
+    if (s && f.press) mouseLeaveHandlers.push(() => s._handlePressCancel());
+
     return {
-      style: hasStyles ? this._styles : undefined,
-      className: hasClasses ? this._classNames.join(" ") : undefined,
+      style:        hasStyles   ? this._styles            : undefined,
+      className:    hasClasses  ? this._classNames.join(" ") : undefined,
+      onMouseEnter: (s && f.hover) ? () => s._handleMouseEnter() : undefined,
+      onMouseLeave: mouseLeaveHandlers.length > 0 ? () => mouseLeaveHandlers.forEach(h => h()) : undefined,
+      onFocus:      (s && f.focus) ? () => s._handleFocus()      : undefined,
+      onBlur:       (s && f.focus) ? () => s._handleBlur()       : undefined,
+      onMouseDown:  (s && f.press) ? (e: { clientX: number; clientY: number }) => s._handleMouseDown(e.clientX, e.clientY) : undefined,
+      onMouseUp:    (s && f.press) ? () => s._handleMouseUp()    : undefined,
     };
   }
 }
 
-/** Apply a Modifier's styles and className to a DOM element. */
+/** Apply a Modifier's styles, className, and interaction handlers to a DOM element. */
 export function applyModifier(el: HTMLElement, mod: Modifier): void {
   const props = mod.toProps();
   if (props.className) el.className = props.className;
@@ -208,4 +304,13 @@ export function applyModifier(el: HTMLElement, mod: Modifier): void {
       if (v !== undefined) (el.style as unknown as Record<string, string>)[k] = String(v);
     }
   }
+  if (props.onMouseEnter) el.addEventListener("mouseenter", props.onMouseEnter);
+  if (props.onMouseLeave) el.addEventListener("mouseleave", props.onMouseLeave);
+  if (props.onFocus)      el.addEventListener("focus",      props.onFocus);
+  if (props.onBlur)       el.addEventListener("blur",       props.onBlur);
+  if (props.onMouseDown) {
+    const handler = props.onMouseDown;
+    el.addEventListener("mousedown", (e: MouseEvent) => handler({ clientX: e.clientX, clientY: e.clientY }));
+  }
+  if (props.onMouseUp)   el.addEventListener("mouseup",    props.onMouseUp);
 }
