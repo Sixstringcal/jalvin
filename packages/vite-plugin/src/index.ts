@@ -172,6 +172,14 @@ export function jalvin(opts: JalvinViteOptions = {}): any {
       if (!include.includes("@jalvin/runtime")) include.push("@jalvin/runtime");
       cfg.optimizeDeps.include = include;
 
+      // Exclude @jalvin/ui from pre-bundling — it ships as native ESM so
+      // Vite can serve it directly from node_modules. Pre-bundling it creates
+      // a content-addressed cached bundle that goes stale when the package is
+      // updated but the lockfile hash hasn't changed.
+      const exclude: string[] = cfg.optimizeDeps.exclude ?? [];
+      if (!exclude.includes("@jalvin/ui")) exclude.push("@jalvin/ui");
+      cfg.optimizeDeps.exclude = exclude;
+
       if (!opts.entry) return;
       if (command === "build") {
         // For builds, set the virtual entry as the rollup input.
