@@ -210,6 +210,14 @@ class TypeEnv {
     this.sym("Bibi", classType("Bibi"));
     this.sym("BibiError", classType("BibiError"));
 
+    // Interaction hooks (@jalvin/ui)
+    const interactionSourceType = classType("InteractionSource");
+    const mutableInteractionSourceType = classType("MutableInteractionSource");
+    this.sym("useMutableInteractionSource", { tag: "func", params: [], paramNames: [], ret: mutableInteractionSourceType, suspend: false });
+    this.sym("useIsHovered", { tag: "func", params: [interactionSourceType], paramNames: ["source"], ret: T_BOOL, suspend: false });
+    this.sym("useIsFocused", { tag: "func", params: [interactionSourceType], paramNames: ["source"], ret: T_BOOL, suspend: false });
+    this.sym("useIsPressed", { tag: "func", params: [interactionSourceType], paramNames: ["source"], ret: T_BOOL, suspend: false });
+
     // State & MVVM
     this.sym("mutableStateOf", { tag: "func", params: [T_UNKNOWN], paramNames: ["value"], ret: classType("MutableState", [T_UNKNOWN]), suspend: false });
     this.sym("remember", { tag: "func", params: [{ tag: "func", params: [], ret: T_UNKNOWN, suspend: false }], paramNames: ["calculation"], ret: T_UNKNOWN, suspend: false });

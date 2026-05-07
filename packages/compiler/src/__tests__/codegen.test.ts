@@ -719,6 +719,29 @@ component fun MyComp() {
     expect(code).toContain("new Cart");
     expect(code).not.toContain("new Row");
   });
+
+  it("emits @jalvin/ui hooks with positional args, not props objects", () => {
+    const code = gen(`
+import @jalvin/ui.useMutableInteractionSource
+import @jalvin/ui.useIsHovered
+import @jalvin/ui.useIsFocused
+import @jalvin/ui.useIsPressed
+component fun MyComp() {
+  val source = useMutableInteractionSource()
+  val hovered = useIsHovered(source)
+  val focused = useIsFocused(source)
+  val pressed = useIsPressed(source)
+  return hovered
+}`);
+    // Hooks must be called positionally, not wrapped in a props object
+    expect(code).toContain("useMutableInteractionSource()");
+    expect(code).toContain("useIsHovered(source)");
+    expect(code).toContain("useIsFocused(source)");
+    expect(code).toContain("useIsPressed(source)");
+    expect(code).not.toContain("useIsHovered({");
+    expect(code).not.toContain("useIsFocused({");
+    expect(code).not.toContain("useIsPressed({");
+  });
 });
 
 describe("Codegen — string templates", () => {

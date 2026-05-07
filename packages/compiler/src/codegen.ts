@@ -176,7 +176,8 @@ export class CodeGenerator {
     }
     this.hasUiStarImport = false;
     for (const imp of program.imports) {
-      // Named imports from @jalvin/ui are component functions
+      // Named imports from @jalvin/ui are treated as potential component functions.
+      // Hooks (e.g. useIsHovered) are filtered out at call-site by the type-based guard below.
       if (imp.path[0] === "@jalvin" && imp.path[1] === "ui" && !imp.star) {
         this.componentNames.add(imp.path[imp.path.length - 1]!);
       }
@@ -1679,7 +1680,12 @@ export class CodeGenerator {
 
     // Component call: Column(modifier = ...) { ... } → Column({ modifier: ... }, [children])
     // Also catches star-imported @jalvin/ui primitives (Row, Button, etc.) whose type is T_UNKNOWN
-    if (expr.callee.kind === "NameExpr" && (
+    //
+    // Skip the component path when the typechecker resolved a func type with explicit paramNames.
+    // That indicates a regular function (fun) or a built-in hook — both use positional calling.
+    // component fun declarations intentionally omit paramNames from their func type.
+    const isKnownPositionalFunc = calleeType?.tag === "func" && calleeType.paramNames !== undefined;
+    if (!isKnownPositionalFunc && expr.callee.kind === "NameExpr" && (
       this.componentNames.has(expr.callee.name) ||
       (this.hasUiStarImport && (!calleeType || calleeType.tag === "unknown") && /^[A-Z]/.test(expr.callee.name))
     )) {
