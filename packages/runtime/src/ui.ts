@@ -263,8 +263,7 @@ function getWindowSizeClassContext(): import("react").Context<WindowSizeClassSta
  * ```
  */
 export function WindowSizeClassProvider(
-  _props: { children?: import("react").ReactNode },
-  children?: import("react").ReactNode[],
+  { children }: { children?: import("react").ReactNode },
 ): import("react").ReactElement {
   const R = getReact();
 
@@ -291,8 +290,7 @@ export function WindowSizeClassProvider(
   }, []);
 
   const ctx = getWindowSizeClassContext();
-  const childNodes = _props.children ?? children ?? [];
-  return R.createElement(ctx.Provider, { value: state }, childNodes);
+  return R.createElement(ctx.Provider, { value: state }, children);
 }
 
 /**

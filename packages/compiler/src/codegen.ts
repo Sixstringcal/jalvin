@@ -234,7 +234,9 @@ export class CodeGenerator {
   private buildPreamble(): string {
     const lines: string[] = [];
 
-    // No React import — @jalvin/ui is DOM-based.
+    if (this.hasComponents) {
+      lines.push('import React from "react";');
+    }
 
     // Emit compiler-injected runtime symbols, but only those NOT already covered
     // by a star-import's named-import expansion (to avoid duplicate imports).
@@ -456,12 +458,12 @@ export class CodeGenerator {
     const propsParams = decl.params.filter((p) => p.name !== "children");
     const hasChildren = decl.params.some((p) => p.name === "children");
 
-    // Props interface (excludes children)
-    if (propsParams.length > 0) {
+    // Props interface
+    if (decl.params.length > 0) {
       this.w.writeIndentedLine(`interface ${decl.name}Props {`);
       this.w.pushIndent();
-      for (const p of propsParams) {
-        const optional = p.defaultValue ? "?" : "";
+      for (const p of decl.params) {
+        const optional = p.defaultValue || p.name === "children" ? "?" : "";
         const typeStr = this.opts.emitTypes ? this.emitTypeRef(p.type) : "any";
         this.w.writeIndentedLine(`readonly ${p.name}${optional}: ${typeStr};`);
       }
@@ -470,16 +472,11 @@ export class CodeGenerator {
       this.w.writeLine();
     }
 
-    const propsDestructure = propsParams.length > 0
-      ? `{ ${propsParams.map((p) => p.name + (p.defaultValue ? ` = ${this.emitExpr(p.defaultValue)}` : "")).join(", ")} }: ${decl.name}Props`
-      // When children is the only param, emit an empty `{}` to absorb the props object
-      // that call sites always emit as the first argument: DocTheme({}, [content])
-      : hasChildren ? `{}`
+    const propsDestructure = decl.params.length > 0
+      ? `{ ${decl.params.map((p) => p.name + (p.defaultValue ? ` = ${this.emitExpr(p.defaultValue)}` : "")).join(", ")} }: ${decl.name}Props`
       : "";
-    const childrenParam = hasChildren ? "children?: any[]" : "";
-    const allParams = [propsDestructure, childrenParam].filter(Boolean).join(", ");
 
-    this.w.writeIndentedLine(`${vis}function ${decl.name}(${allParams}) {`);
+    this.w.writeIndentedLine(`${vis}function ${decl.name}(${propsDestructure}) {`);
     this.w.pushIndent();
     this.emitComponentBlock(decl.body);
     this.w.popIndent();
@@ -1849,7 +1846,7 @@ export class CodeGenerator {
 
   // ── Component call → props object ──────────────────────────────────────
 
-  /** Emit `Column(modifier = ...) { ... }` as `Column({ modifier: ... }, [children])` */
+  /** Emit `Column(modifier = ...) { ... }` as `React.createElement(Column, { modifier: ... }, [children])` */
   private emitComponentCall(expr: AST.CallExpr): string {
     const tag = (expr.callee as AST.NameExpr).name;
     const calleeType = this.typeMap.get(expr.callee);
@@ -1877,9 +1874,9 @@ export class CodeGenerator {
 
     if (expr.trailingLambda) {
       const children = this.emitLambdaBodyAsDomChildren(expr.trailingLambda);
-      return children ? `${tag}(${propsStr}, [${children}])` : `${tag}(${propsStr})`;
+      return `React.createElement(${tag}, ${propsStr}, [${children}])`;
     }
-    return `${tag}(${propsStr})`;
+    return `React.createElement(${tag}, ${propsStr})`;
   }
 
   /** Collect each expression statement in a trailing-lambda body as DOM children.

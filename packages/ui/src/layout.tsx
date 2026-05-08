@@ -29,12 +29,12 @@ export interface ColumnProps {
   spacing?: number;
   verticalArrangement?: Arrangement;
   horizontalAlignment?: Alignment;
+  children?: React.ReactNode[];
 }
 
 /** Vertical flex container. */
 export function Column(
-  { modifier, spacing, verticalArrangement = "start", horizontalAlignment = "start" }: ColumnProps,
-  children?: React.ReactNode[]
+  { modifier, spacing, verticalArrangement = "start", horizontalAlignment = "start", children }: ColumnProps
 ): React.ReactElement {
   const modProps = modifier?.toProps() ?? {};
   return React.createElement("div", {
@@ -56,12 +56,12 @@ export interface RowProps {
   horizontalArrangement?: Arrangement;
   verticalAlignment?: Alignment;
   wrap?: boolean;
+  children?: React.ReactNode[];
 }
 
 /** Horizontal flex container. */
 export function Row(
-  { modifier, spacing, horizontalArrangement = "start", verticalAlignment = "center", wrap = false }: RowProps,
-  children?: React.ReactNode[]
+  { modifier, spacing, horizontalArrangement = "start", verticalAlignment = "center", wrap = false, children }: RowProps
 ): React.ReactElement {
   const modProps = modifier?.toProps() ?? {};
   return React.createElement("div", {
@@ -81,12 +81,12 @@ export function Row(
 export interface BoxProps {
   modifier?: Modifier;
   contentAlignment?: "topStart" | "topCenter" | "topEnd" | "centerStart" | "center" | "centerEnd" | "bottomStart" | "bottomCenter" | "bottomEnd";
+  children?: React.ReactNode[];
 }
 
 /** Positioned container. */
 export function Box(
-  { modifier, contentAlignment = "topStart" }: BoxProps,
-  children?: React.ReactNode[]
+  { modifier, contentAlignment = "topStart", children }: BoxProps
 ): React.ReactElement {
   const modProps = modifier?.toProps() ?? {};
   const isCentered = contentAlignment === "center";
