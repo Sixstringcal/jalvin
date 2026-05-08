@@ -271,6 +271,9 @@ export class Modifier {
     onBlur?: () => void;
     onMouseDown?: (e: { clientX: number; clientY: number }) => void;
     onMouseUp?: () => void;
+    onTouchStart?: (e: { touches: ArrayLike<{ clientX: number; clientY: number }> }) => void;
+    onTouchEnd?: () => void;
+    onTouchCancel?: () => void;
   } {
     const hasStyles = Object.keys(this._styles).length > 0;
     const hasClasses = this._classNames.length > 0;
@@ -291,6 +294,12 @@ export class Modifier {
       onBlur:       (s && f.focus) ? () => s._handleBlur()       : undefined,
       onMouseDown:  (s && f.press) ? (e: { clientX: number; clientY: number }) => s._handleMouseDown(e.clientX, e.clientY) : undefined,
       onMouseUp:    (s && f.press) ? () => s._handleMouseUp()    : undefined,
+      onTouchStart: (s && (f.press || f.hover)) ? (e: { touches: ArrayLike<{ clientX: number; clientY: number }> }) => {
+        const t = e.touches[0];
+        if (t) s._handleTouchStart(t.clientX, t.clientY);
+      } : undefined,
+      onTouchEnd:   (s && (f.press || f.hover)) ? () => s._handleTouchEnd()   : undefined,
+      onTouchCancel:(s && (f.press || f.hover)) ? () => s._handleTouchCancel() : undefined,
     };
   }
 }
@@ -313,4 +322,10 @@ export function applyModifier(el: HTMLElement, mod: Modifier): void {
     el.addEventListener("mousedown", (e: MouseEvent) => handler({ clientX: e.clientX, clientY: e.clientY }));
   }
   if (props.onMouseUp)   el.addEventListener("mouseup",    props.onMouseUp);
+  if (props.onTouchStart) {
+    const handler = props.onTouchStart;
+    el.addEventListener("touchstart", (e: TouchEvent) => handler({ touches: e.touches }), { passive: true });
+  }
+  if (props.onTouchEnd)    el.addEventListener("touchend",    props.onTouchEnd,    { passive: true });
+  if (props.onTouchCancel) el.addEventListener("touchcancel", props.onTouchCancel, { passive: true });
 }

@@ -77,7 +77,7 @@ export function Scaffold(
   },
     topBar,
     React.createElement("main", {
-      style: { flex: 1, overflow: "auto" },
+      style: { flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" },
     }, ...(children ?? [])),
     bottomBar,
     floatingActionButton && React.createElement("div", {

@@ -82,6 +82,9 @@ export function Canvas({
     onBlur: modProps.onBlur,
     onMouseDown: modProps.onMouseDown,
     onMouseUp: modProps.onMouseUp,
+    onTouchStart: modProps.onTouchStart,
+    onTouchEnd: modProps.onTouchEnd,
+    onTouchCancel: modProps.onTouchCancel,
     style: {
       width: width !== undefined ? `${width}px` : undefined,
       height: height !== undefined ? `${height}px` : undefined,

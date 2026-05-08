@@ -192,3 +192,79 @@ export function SideEffect(fn: () => void): void {
   const R = getReact();
   R.useEffect(fn);
 }
+
+// ---------------------------------------------------------------------------
+// WindowSizeClass — adaptive layout breakpoints (mirrors Compose WindowSizeClass)
+//
+// Breakpoints match Material Design 3 / Compose for Mobile:
+//   Compact  < 600dp   — phones in portrait
+//   Medium   600–839dp — tablets, foldables, large phones landscape
+//   Expanded ≥ 840dp   — desktop, large tablets
+// ---------------------------------------------------------------------------
+
+export type WindowSizeClass = "Compact" | "Medium" | "Expanded";
+
+/** @internal — exported for testing */
+export function widthToSizeClass(widthPx: number): WindowSizeClass {
+  if (widthPx < 600) return "Compact";
+  if (widthPx < 840) return "Medium";
+  return "Expanded";
+}
+
+/** @internal — exported for testing */
+export function heightToSizeClass(heightPx: number): WindowSizeClass {
+  if (heightPx < 480) return "Compact";
+  if (heightPx < 900) return "Medium";
+  return "Expanded";
+}
+
+export interface WindowSizeClassState {
+  widthSizeClass: WindowSizeClass;
+  heightSizeClass: WindowSizeClass;
+}
+
+/**
+ * Returns the current {@link WindowSizeClassState} and re-renders whenever the
+ * window is resized across a breakpoint boundary.
+ *
+ * Mirrors `calculateWindowSizeClass()` from Compose Material3 Adaptive.
+ *
+ * @example
+ * ```jalvin
+ * component fun AdaptiveLayout() {
+ *   val windowSize = calculateWindowSizeClass()
+ *   if (windowSize.widthSizeClass == "Compact") {
+ *     MobileLayout()
+ *   } else {
+ *     DesktopLayout()
+ *   }
+ * }
+ * ```
+ */
+export function calculateWindowSizeClass(): WindowSizeClassState {
+  const R = getReact();
+
+  const getState = (): WindowSizeClassState => ({
+    widthSizeClass:  widthToSizeClass(typeof window !== "undefined" ? window.innerWidth  : 1280),
+    heightSizeClass: heightToSizeClass(typeof window !== "undefined" ? window.innerHeight : 800),
+  });
+
+  const [state, setState] = R.useState<WindowSizeClassState>(getState);
+
+  R.useEffect(() => {
+    const onResize = () => {
+      const next = getState();
+      setState(prev =>
+        prev.widthSizeClass === next.widthSizeClass &&
+        prev.heightSizeClass === next.heightSizeClass
+          ? prev
+          : next
+      );
+    };
+
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  return state;
+}

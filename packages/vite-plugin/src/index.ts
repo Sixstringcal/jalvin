@@ -70,14 +70,18 @@ function generateIndexHtml(title: string, scriptSrc: string): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>${title}</title>
     <style>
-      *, *::before, *::after { box-sizing: border-box; }
-      html, body { height: 100%; margin: 0; }
+      *, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      html, body { height: 100%; margin: 0; overflow-x: hidden; }
       body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         background: #fafafa;
         color: #1c1c1c;
+        -webkit-text-size-adjust: 100%;
+        text-size-adjust: 100%;
       }
       #root { height: 100%; }
+      button { touch-action: manipulation; }
+      input, textarea, select { font-size: 1rem; }
     </style>
   </head>
   <body>

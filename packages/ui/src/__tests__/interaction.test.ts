@@ -250,3 +250,93 @@ describe("useIsPressed", () => {
     expect(result.current).toBe(false);
   });
 });
+
+// ── MutableInteractionSource — touch ─────────────────────────────────────────
+
+describe("MutableInteractionSource — touch (_handleTouchStart)", () => {
+  it("adds hover.enter and press.press on touch start", () => {
+    const s = new MutableInteractionSource();
+    s._handleTouchStart(10, 20);
+    const types = s.getInteractions().map(i => i.type);
+    expect(types).toContain("hover.enter");
+    expect(types).toContain("press.press");
+    expect(s.getInteractions()).toHaveLength(2);
+  });
+
+  it("records the correct touch coordinates", () => {
+    const s = new MutableInteractionSource();
+    s._handleTouchStart(42, 84);
+    const press = s.getInteractions().find(i => i.type === "press.press");
+    expect(press).toBeDefined();
+    if (press?.type === "press.press") {
+      expect(press.x).toBe(42);
+      expect(press.y).toBe(84);
+    }
+  });
+
+  it("does not add a second hover.enter if already hovered", () => {
+    const s = new MutableInteractionSource();
+    s._handleMouseEnter(); // already hovered
+    s._handleTouchStart(0, 0);
+    const hoverEntries = s.getInteractions().filter(i => i.type === "hover.enter");
+    expect(hoverEntries).toHaveLength(1);
+  });
+});
+
+describe("MutableInteractionSource — touch (_handleTouchEnd)", () => {
+  it("clears both press and hover on touch end", () => {
+    const s = new MutableInteractionSource();
+    s._handleTouchStart(0, 0);
+    s._handleTouchEnd();
+    expect(s.getInteractions()).toHaveLength(0);
+  });
+
+  it("is a no-op when called without a preceding touch start", () => {
+    const s = new MutableInteractionSource();
+    s._handleTouchEnd();
+    expect(s.getInteractions()).toHaveLength(0);
+  });
+});
+
+describe("MutableInteractionSource — touch (_handleTouchCancel)", () => {
+  it("clears both press and hover on touch cancel", () => {
+    const s = new MutableInteractionSource();
+    s._handleTouchStart(0, 0);
+    s._handleTouchCancel();
+    expect(s.getInteractions()).toHaveLength(0);
+  });
+
+  it("is a no-op when called without a preceding touch start", () => {
+    const s = new MutableInteractionSource();
+    s._handleTouchCancel();
+    expect(s.getInteractions()).toHaveLength(0);
+  });
+});
+
+describe("MutableInteractionSource — touch (hooks)", () => {
+  it("useIsPressed becomes true on touch start and false on touch end", () => {
+    const source = new MutableInteractionSource();
+    const { result } = renderHook(() => useIsPressed(source));
+    act(() => { source._handleTouchStart(0, 0); });
+    expect(result.current).toBe(true);
+    act(() => { source._handleTouchEnd(); });
+    expect(result.current).toBe(false);
+  });
+
+  it("useIsHovered becomes true on touch start and false on touch end", () => {
+    const source = new MutableInteractionSource();
+    const { result } = renderHook(() => useIsHovered(source));
+    act(() => { source._handleTouchStart(0, 0); });
+    expect(result.current).toBe(true);
+    act(() => { source._handleTouchEnd(); });
+    expect(result.current).toBe(false);
+  });
+
+  it("useIsPressed becomes false on touch cancel", () => {
+    const source = new MutableInteractionSource();
+    const { result } = renderHook(() => useIsPressed(source));
+    act(() => { source._handleTouchStart(0, 0); });
+    act(() => { source._handleTouchCancel(); });
+    expect(result.current).toBe(false);
+  });
+});

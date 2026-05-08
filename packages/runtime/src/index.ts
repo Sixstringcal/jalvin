@@ -32,8 +32,10 @@ export {
   mutableStateOf, remember, rememberMutableStateOf,
   collectAsState, useViewModel,
   LaunchedEffect, DisposableEffect, SideEffect,
+  calculateWindowSizeClass,
+  widthToSizeClass, heightToSizeClass,
 } from "./ui.js";
-export type { MutableState } from "./ui.js";
+export type { MutableState, WindowSizeClass, WindowSizeClassState } from "./ui.js";
 
 // Utilities / stdlib — each module is a single-purpose file under stdlib/
 // See packages/runtime/src/stdlib/index.ts for the full module map.

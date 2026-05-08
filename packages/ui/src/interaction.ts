@@ -146,6 +146,34 @@ export class MutableInteractionSource implements InteractionSource {
     }
   }
 
+  /** @internal — maps touch start to a press + hover enter */
+  _handleTouchStart(x: number, y: number): void {
+    if (!this._currentHover) {
+      const enter: HoverInteraction.Enter = { type: "hover.enter" };
+      this._currentHover = enter;
+      this._emit(enter);
+    }
+    this._handleMouseDown(x, y);
+  }
+
+  /** @internal — maps touch end to press release + hover exit */
+  _handleTouchEnd(): void {
+    this._handleMouseUp();
+    if (this._currentHover) {
+      this._emit({ type: "hover.exit", enter: this._currentHover });
+      this._currentHover = null;
+    }
+  }
+
+  /** @internal — maps touch cancel to press cancel + hover exit */
+  _handleTouchCancel(): void {
+    this._handlePressCancel();
+    if (this._currentHover) {
+      this._emit({ type: "hover.exit", enter: this._currentHover });
+      this._currentHover = null;
+    }
+  }
+
   // ── Private ──────────────────────────────────────────────────────────────
 
   private _emit(interaction: Interaction): void {

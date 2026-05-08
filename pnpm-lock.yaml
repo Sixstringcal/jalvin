@@ -101,6 +101,9 @@ importers:
 
   packages/ui:
     devDependencies:
+      '@jalvin/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       '@testing-library/jest-dom':
         specifier: ^6.9.1
         version: 6.9.1
