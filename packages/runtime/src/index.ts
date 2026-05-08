@@ -32,6 +32,7 @@ export {
   mutableStateOf, remember, rememberMutableStateOf,
   collectAsState, useViewModel,
   LaunchedEffect, DisposableEffect, SideEffect,
+  WindowSizeClassProvider,
   calculateWindowSizeClass,
   widthToSizeClass, heightToSizeClass,
 } from "./ui.js";

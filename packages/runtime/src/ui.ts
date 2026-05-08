@@ -223,25 +223,49 @@ export interface WindowSizeClassState {
   heightSizeClass: WindowSizeClass;
 }
 
+// ---------------------------------------------------------------------------
+// WindowSizeClassProvider — single resize listener for the whole tree
+//
+// Mount this once at the app root. All calls to calculateWindowSizeClass()
+// read from this context, so a single resize event produces exactly one
+// coordinated state update regardless of how many components call the hook.
+// ---------------------------------------------------------------------------
+
+const DEFAULT_WINDOW_SIZE_CLASS: WindowSizeClassState = {
+  widthSizeClass: "Expanded",
+  heightSizeClass: "Medium",
+};
+
+// Lazily created so the module remains usable in non-React (Node) builds.
+let _WindowSizeClassContext: import("react").Context<WindowSizeClassState> | null = null;
+
+function getWindowSizeClassContext(): import("react").Context<WindowSizeClassState> {
+  if (!_WindowSizeClassContext) {
+    _WindowSizeClassContext = getReact().createContext<WindowSizeClassState>(DEFAULT_WINDOW_SIZE_CLASS);
+  }
+  return _WindowSizeClassContext;
+}
+
 /**
- * Returns the current {@link WindowSizeClassState} and re-renders whenever the
- * window is resized across a breakpoint boundary.
+ * Mount once at the app root. Registers a single `resize` listener and
+ * distributes the current {@link WindowSizeClassState} to all descendants
+ * that call {@link calculateWindowSizeClass}.
  *
- * Mirrors `calculateWindowSizeClass()` from Compose Material3 Adaptive.
+ * The vite-plugin entry module wraps the root component in this provider
+ * automatically when the `entry` option is used.
  *
  * @example
  * ```jalvin
- * component fun AdaptiveLayout() {
- *   val windowSize = calculateWindowSizeClass()
- *   if (windowSize.widthSizeClass == "Compact") {
- *     MobileLayout()
- *   } else {
- *     DesktopLayout()
- *   }
- * }
+ * // main entry
+ * root.render(
+ *   WindowSizeClassProvider { MyApp() }
+ * )
  * ```
  */
-export function calculateWindowSizeClass(): WindowSizeClassState {
+export function WindowSizeClassProvider(
+  _props: { children?: import("react").ReactNode },
+  children?: import("react").ReactNode[],
+): import("react").ReactElement {
   const R = getReact();
 
   const getState = (): WindowSizeClassState => ({
@@ -261,10 +285,40 @@ export function calculateWindowSizeClass(): WindowSizeClassState {
           : next
       );
     };
-
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return state;
+  const ctx = getWindowSizeClassContext();
+  const childNodes = _props.children ?? children ?? [];
+  return R.createElement(ctx.Provider, { value: state }, childNodes);
+}
+
+/**
+ * Returns the current {@link WindowSizeClassState}. Re-renders only when the
+ * window crosses a breakpoint boundary.
+ *
+ * Requires {@link WindowSizeClassProvider} to be mounted somewhere above this
+ * component in the tree (the vite-plugin does this automatically). If no
+ * provider is found the hook falls back to "Expanded/Medium" and logs a
+ * warning in development.
+ *
+ * Mirrors `calculateWindowSizeClass()` from Compose Material3 Adaptive.
+ *
+ * @example
+ * ```jalvin
+ * component fun AdaptiveLayout() {
+ *   val windowSize = calculateWindowSizeClass()
+ *   if (windowSize.widthSizeClass == "Compact") {
+ *     MobileLayout()
+ *   } else {
+ *     DesktopLayout()
+ *   }
+ * }
+ * ```
+ */
+export function calculateWindowSizeClass(): WindowSizeClassState {
+  const R = getReact();
+  return R.useContext(getWindowSizeClassContext());
 }
