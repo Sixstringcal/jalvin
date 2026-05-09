@@ -453,30 +453,63 @@ export class CodeGenerator {
     this.hasComponents = true;
     const vis = this.exportPrefix(decl.modifiers);
 
-    // "children" is passed as the second positional argument by emitComponentCall,
-    // so it must NOT be destructured from the props object.
-    const propsParams = decl.params.filter((p) => p.name !== "children");
     const hasChildren = decl.params.some((p) => p.name === "children");
 
-    // Props interface
-    if (decl.params.length > 0) {
-      this.w.writeIndentedLine(`interface ${decl.name}Props {`);
-      this.w.pushIndent();
-      for (const p of decl.params) {
-        const optional = p.defaultValue || p.name === "children" ? "?" : "";
-        const typeStr = this.opts.emitTypes ? this.emitTypeRef(p.type) : "any";
-        this.w.writeIndentedLine(`readonly ${p.name}${optional}: ${typeStr};`);
+    if (this.opts.jsx) {
+      // React.createElement format: children are part of props destructuring
+      // Props interface
+      if (decl.params.length > 0) {
+        this.w.writeIndentedLine(`interface ${decl.name}Props {`);
+        this.w.pushIndent();
+        for (const p of decl.params) {
+          const optional = p.defaultValue || p.name === "children" ? "?" : "";
+          const typeStr = this.opts.emitTypes ? this.emitTypeRef(p.type) : "any";
+          this.w.writeIndentedLine(`readonly ${p.name}${optional}: ${typeStr};`);
+        }
+        this.w.popIndent();
+        this.w.writeIndentedLine(`}`);
+        this.w.writeLine();
       }
-      this.w.popIndent();
-      this.w.writeIndentedLine(`}`);
-      this.w.writeLine();
+      
+      const propsDestructure = decl.params.length > 0
+        ? `{ ${decl.params.map((p) => p.name + (p.defaultValue ? ` = ${this.emitExpr(p.defaultValue)}` : "")).join(", ")} }: ${decl.name}Props`
+        : "";
+      
+      this.w.writeIndentedLine(`${vis}function ${decl.name}(${propsDestructure}) {`);
+    } else {
+      // Direct function call format: children are separate positional parameter
+      const propsParams = decl.params.filter((p) => p.name !== "children");
+
+      // Props interface
+      if (propsParams.length > 0) {
+        this.w.writeIndentedLine(`interface ${decl.name}Props {`);
+        this.w.pushIndent();
+        for (const p of propsParams) {
+          const optional = p.defaultValue ? "?" : "";
+          const typeStr = this.opts.emitTypes ? this.emitTypeRef(p.type) : "any";
+          this.w.writeIndentedLine(`readonly ${p.name}${optional}: ${typeStr};`);
+        }
+        this.w.popIndent();
+        this.w.writeIndentedLine(`}`);
+        this.w.writeLine();
+      }
+
+      // Build the function signature
+      let signature = "";
+      if (propsParams.length > 0) {
+        signature = `{ ${propsParams.map((p) => p.name + (p.defaultValue ? ` = ${this.emitExpr(p.defaultValue)}` : "")).join(", ")} }: ${decl.name}Props`;
+      } else if (hasChildren) {
+        // Children-only component needs {} as first param to absorb the empty props object from call site
+        signature = "{}";
+      }
+      
+      if (hasChildren) {
+        signature += signature ? ", children?: any" : "children?: any";
+      }
+      
+      this.w.writeIndentedLine(`${vis}function ${decl.name}(${signature}) {`);
     }
-
-    const propsDestructure = decl.params.length > 0
-      ? `{ ${decl.params.map((p) => p.name + (p.defaultValue ? ` = ${this.emitExpr(p.defaultValue)}` : "")).join(", ")} }: ${decl.name}Props`
-      : "";
-
-    this.w.writeIndentedLine(`${vis}function ${decl.name}(${propsDestructure}) {`);
+    
     this.w.pushIndent();
     this.emitComponentBlock(decl.body);
     this.w.popIndent();
@@ -1846,7 +1879,7 @@ export class CodeGenerator {
 
   // ── Component call → props object ──────────────────────────────────────
 
-  /** Emit `Column(modifier = ...) { ... }` as `React.createElement(Column, { modifier: ... }, [children])` */
+  /** Emit `Column(modifier = ...) { ... }` as either direct calls or React.createElement depending on jsx option */
   private emitComponentCall(expr: AST.CallExpr): string {
     const tag = (expr.callee as AST.NameExpr).name;
     const calleeType = this.typeMap.get(expr.callee);
@@ -1872,11 +1905,21 @@ export class CodeGenerator {
 
     const propsStr = props.length > 0 ? `{ ${props.join(", ")} }` : "{}";
 
-    if (expr.trailingLambda) {
-      const children = this.emitLambdaBodyAsDomChildren(expr.trailingLambda);
-      return `React.createElement(${tag}, ${propsStr}, [${children}])`;
+    if (this.opts.jsx) {
+      // React.createElement format for JSX output
+      if (expr.trailingLambda) {
+        const children = this.emitLambdaBodyAsDomChildren(expr.trailingLambda);
+        return `React.createElement(${tag}, ${propsStr}, [${children}])`;
+      }
+      return `React.createElement(${tag}, ${propsStr})`;
+    } else {
+      // Direct function call format for non-JSX output
+      if (expr.trailingLambda) {
+        const children = this.emitLambdaBodyAsDomChildren(expr.trailingLambda);
+        return `${tag}(${propsStr}, [${children}])`;
+      }
+      return `${tag}(${propsStr})`;
     }
-    return `React.createElement(${tag}, ${propsStr})`;
   }
 
   /** Collect each expression statement in a trailing-lambda body as DOM children.
