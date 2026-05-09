@@ -235,6 +235,86 @@ describe("Typechecker — Unit as a value", () => {
   });
 });
 
+describe("Typechecker — component context required", () => {
+  it("errors when remember is called outside a component fun", () => {
+    const errs = errors(`fun f() { val x = remember { 1 } }`);
+    expect(errs.some((e) => e.code === "E0322")).toBe(true);
+  });
+
+  it("errors when LaunchedEffect is called outside a component fun", () => {
+    const errs = errors(`fun f() { LaunchedEffect(Unit) { } }`);
+    expect(errs.some((e) => e.code === "E0322")).toBe(true);
+  });
+
+  it("allows effect/state helpers inside a component fun", () => {
+    const errs = errors(`
+component fun Counter() {
+  val state = remember { mutableStateOf(0) }
+  SideEffect { println(state.value) }
+  return Unit
+}`);
+    expect(errs.filter((e) => e.code === "E0322")).toHaveLength(0);
+  });
+});
+
+describe("Typechecker — component call order", () => {
+  it("errors when remember is called inside an if branch in a component", () => {
+    const errs = errors(`
+component fun C(flag: Boolean) {
+  if (flag) {
+    remember { 1 }
+  }
+  return Unit
+}`);
+    expect(errs.some((e) => e.code === "E0323")).toBe(true);
+  });
+
+  it("errors when SideEffect is called inside a loop in a component", () => {
+    const errs = errors(`
+component fun C() {
+  for (i in listOf(1, 2, 3)) {
+    SideEffect { println(i) }
+  }
+  return Unit
+}`);
+    expect(errs.some((e) => e.code === "E0323")).toBe(true);
+  });
+
+  it("errors when component-only API is called inside nested lambda", () => {
+    const errs = errors(`
+component fun C() {
+  listOf(1, 2).forEach {
+    remember { it }
+  }
+  return Unit
+}`);
+    expect(errs.some((e) => e.code === "E0323")).toBe(true);
+  });
+
+  it("allows top-level remember call in component body", () => {
+    const errs = errors(`
+component fun C() {
+  val x = remember { 1 }
+  println(x)
+  return Unit
+}`);
+    expect(errs.filter((e) => e.code === "E0323")).toHaveLength(0);
+  });
+
+  it("adds a contextual note describing the enclosing construct", () => {
+    const result = compile(`
+component fun C(flag: Boolean) {
+  if (flag) {
+    remember { 1 }
+  }
+  return Unit
+}`, "<test>");
+    const e = result.diagnostics.items.find((d) => d.severity === "error" && d.code === "E0323");
+    expect(e).toBeTruthy();
+    expect(e?.notes.some((n) => n.message.includes("inside if statement"))).toBe(true);
+  });
+});
+
 describe("Typechecker — browser globals (confirm / alert)", () => {
   it("no error calling confirm()", () => {
     const errs = errors(`fun f() { val ok = confirm("Are you sure?") }`);

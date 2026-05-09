@@ -27,6 +27,8 @@ import {
   E_CLASS_EXTENDS_FINAL,
   E_CONST_VAL_REASSIGNMENT,
   E_LATEINIT_INVALID,
+  E_COMPONENT_CONTEXT_REQUIRED,
+  E_COMPONENT_CALL_ORDER,
   W_DEPRECATED,
   W_UNUSED_VARIABLE,
   W_UNREACHABLE_CODE,
@@ -292,6 +294,10 @@ export class TypeChecker {
   private inSuspend = false;
   /** Whether we're inside a component */
   private inComponent = false;
+  /** Nesting depth where component-only APIs would violate stable call order. */
+  private componentCallOrderDepth = 0;
+  /** Context stack describing where call-order nesting was introduced. */
+  private readonly componentCallOrderContextStack: string[] = [];
   /** Whether the program has a wildcard import from a @jalvin/* package */
   private hasWildcardJalvinImport = false;
   /** Map from node to resolved type (for IDE use) */
@@ -842,47 +848,51 @@ export class TypeChecker {
       case "ForStmt": this.checkForStmt(stmt); break;
       case "WhileStmt": this.checkWhileStmt(stmt); break;
       case "DoWhileStmt": {
-        this.checkBlock(stmt.body);
-        this.checkExpr(stmt.condition);
+        this.withComponentOrderNesting("do-while loop", () => {
+          this.checkBlock(stmt.body);
+          this.checkExpr(stmt.condition);
+        });
         break;
       }
-      case "TryCatchStmt": this.checkTryCatch(stmt); break;
+      case "TryCatchStmt": this.withComponentOrderNesting("try/catch statement", () => this.checkTryCatch(stmt)); break;
       case "LabeledStmt": this.checkStmt(stmt.body); break;
     }
   }
 
   private checkIfStmt(stmt: AST.IfStmt): void {
-    const condType = this.checkExpr(stmt.condition);
-    this.assertAssignable(stmt.condition.span, condType, T_BOOL);
+    this.withComponentOrderNesting("if statement", () => {
+      const condType = this.checkExpr(stmt.condition);
+      this.assertAssignable(stmt.condition.span, condType, T_BOOL);
 
-    // Smart cast: if (x is T) { ... } narrows x to T inside the then branch
-    const narrowings = this.extractSmartCasts(stmt.condition);
-    const thenScope = new Scope(this.scope);
-    for (const [name, type] of narrowings) {
-      const existing = this.scope.lookup(name);
-      if (existing) {
-        thenScope.define({ ...existing, type });
-      }
-    }
-    this.withScope(thenScope, () => this.checkBlock(stmt.then));
-
-    if (stmt.else) {
-      const elseNarrowings = this.extractElseSmartCasts(stmt.condition);
-      if (elseNarrowings.size > 0) {
-        const elseScope = new Scope(this.scope);
-        for (const [name, type] of elseNarrowings) {
-          const existing = this.scope.lookup(name);
-          if (existing) elseScope.define({ ...existing, type });
+      // Smart cast: if (x is T) { ... } narrows x to T inside the then branch
+      const narrowings = this.extractSmartCasts(stmt.condition);
+      const thenScope = new Scope(this.scope);
+      for (const [name, type] of narrowings) {
+        const existing = this.scope.lookup(name);
+        if (existing) {
+          thenScope.define({ ...existing, type });
         }
-        this.withScope(elseScope, () => {
-          if (stmt.else!.kind === "Block") this.checkBlock(stmt.else!);
-          else if (stmt.else!.kind === "IfStmt") this.checkIfStmt(stmt.else!);
-        });
-      } else {
-        if (stmt.else.kind === "Block") this.checkBlock(stmt.else);
-        else if (stmt.else.kind === "IfStmt") this.checkIfStmt(stmt.else);
       }
-    }
+      this.withScope(thenScope, () => this.checkBlock(stmt.then));
+
+      if (stmt.else) {
+        const elseNarrowings = this.extractElseSmartCasts(stmt.condition);
+        if (elseNarrowings.size > 0) {
+          const elseScope = new Scope(this.scope);
+          for (const [name, type] of elseNarrowings) {
+            const existing = this.scope.lookup(name);
+            if (existing) elseScope.define({ ...existing, type });
+          }
+          this.withScope(elseScope, () => {
+            if (stmt.else!.kind === "Block") this.checkBlock(stmt.else!);
+            else if (stmt.else!.kind === "IfStmt") this.checkIfStmt(stmt.else!);
+          });
+        } else {
+          if (stmt.else.kind === "Block") this.checkBlock(stmt.else);
+          else if (stmt.else.kind === "IfStmt") this.checkIfStmt(stmt.else);
+        }
+      }
+    });
   }
 
   /**
@@ -944,59 +954,61 @@ export class TypeChecker {
   }
 
   private checkWhenStmt(stmt: AST.WhenStmt): void {
-    const subjectType = stmt.subject ? this.checkExpr(stmt.subject.expr) : null;
+    this.withComponentOrderNesting("when statement", () => {
+      const subjectType = stmt.subject ? this.checkExpr(stmt.subject.expr) : null;
 
-    // Bind `when (val x = expr)` into each branch scope
-    for (const branch of stmt.branches) {
-      const branchScope = stmt.subject?.binding
-        ? new Scope(this.scope)
-        : this.scope;
-      if (stmt.subject?.binding && subjectType) {
-        (branchScope as Scope).define({
-          name: stmt.subject.binding,
-          type: subjectType,
-          mutable: false,
-          span: stmt.subject.span,
+      // Bind `when (val x = expr)` into each branch scope
+      for (const branch of stmt.branches) {
+        const branchScope = stmt.subject?.binding
+          ? new Scope(this.scope)
+          : this.scope;
+        if (stmt.subject?.binding && subjectType) {
+          (branchScope as Scope).define({
+            name: stmt.subject.binding,
+            type: subjectType,
+            mutable: false,
+            span: stmt.subject.span,
+          });
+        }
+
+        this.withScope(branchScope, () => {
+          // Smart cast narrowing: for single `is Type` condition, narrow subject type
+          if (
+            stmt.subject?.binding &&
+            subjectType &&
+            branch.conditions.length === 1 &&
+            branch.conditions[0]!.kind === "WhenIsCondition" &&
+            !branch.conditions[0]!.negated
+          ) {
+            const isC = branch.conditions[0]!;
+            const narrowedType = this.resolveTypeRef(isC.type);
+            const narrowScope = new Scope(branchScope);
+            narrowScope.define({
+              name: stmt.subject.binding,
+              type: narrowedType,
+              mutable: false,
+              span: isC.span,
+            });
+            this.withScope(narrowScope, () => {
+              if (branch.body.kind === "Block") this.checkBlock(branch.body);
+              else this.checkExpr(branch.body);
+            });
+          } else {
+            for (const cond of branch.conditions) {
+              if (cond.kind === "WhenExprCondition") this.checkExpr(cond.expr);
+              else if (cond.kind === "WhenInCondition") this.checkExpr(cond.expr);
+            }
+            if (branch.body.kind === "Block") this.checkBlock(branch.body);
+            else this.checkExpr(branch.body);
+          }
         });
       }
 
-      this.withScope(branchScope, () => {
-        // Smart cast narrowing: for single `is Type` condition, narrow subject type
-        if (
-          stmt.subject?.binding &&
-          subjectType &&
-          branch.conditions.length === 1 &&
-          branch.conditions[0]!.kind === "WhenIsCondition" &&
-          !branch.conditions[0]!.negated
-        ) {
-          const isC = branch.conditions[0]!;
-          const narrowedType = this.resolveTypeRef(isC.type);
-          const narrowScope = new Scope(branchScope);
-          narrowScope.define({
-            name: stmt.subject.binding,
-            type: narrowedType,
-            mutable: false,
-            span: isC.span,
-          });
-          this.withScope(narrowScope, () => {
-            if (branch.body.kind === "Block") this.checkBlock(branch.body);
-            else this.checkExpr(branch.body);
-          });
-        } else {
-          for (const cond of branch.conditions) {
-            if (cond.kind === "WhenExprCondition") this.checkExpr(cond.expr);
-            else if (cond.kind === "WhenInCondition") this.checkExpr(cond.expr);
-          }
-          if (branch.body.kind === "Block") this.checkBlock(branch.body);
-          else this.checkExpr(branch.body);
-        }
-      });
-    }
-
-    // Exhaustiveness check for sealed classes
-    if (subjectType) {
-      this.checkWhenExhaustiveness(stmt.span, stmt.branches, subjectType);
-    }
+      // Exhaustiveness check for sealed classes
+      if (subjectType) {
+        this.checkWhenExhaustiveness(stmt.span, stmt.branches, subjectType);
+      }
+    });
   }
 
   /**
@@ -1076,19 +1088,24 @@ export class TypeChecker {
     }
   }
 
-  private checkForStmt(stmt: AST.ForStmt): void {    const iterType = this.checkExpr(stmt.iterable);
-    const elemType = this.elementTypeOf(iterType);
-    const childScope = new Scope(this.scope);
+  private checkForStmt(stmt: AST.ForStmt): void {
+    this.withComponentOrderNesting("for loop", () => {
+      const iterType = this.checkExpr(stmt.iterable);
+      const elemType = this.elementTypeOf(iterType);
+      const childScope = new Scope(this.scope);
 
-    if (typeof stmt.binding === "string") {
-      childScope.define({ name: stmt.binding, type: elemType, mutable: false, span: stmt.span });
-    }
-    this.withScope(childScope, () => this.checkBlock(stmt.body));
+      if (typeof stmt.binding === "string") {
+        childScope.define({ name: stmt.binding, type: elemType, mutable: false, span: stmt.span });
+      }
+      this.withScope(childScope, () => this.checkBlock(stmt.body));
+    });
   }
 
   private checkWhileStmt(stmt: AST.WhileStmt): void {
-    this.checkExpr(stmt.condition);
-    this.checkBlock(stmt.body);
+    this.withComponentOrderNesting("while loop", () => {
+      this.checkExpr(stmt.condition);
+      this.checkBlock(stmt.body);
+    });
   }
 
   private checkTryCatch(stmt: AST.TryCatchStmt): void {
@@ -1220,27 +1237,33 @@ export class TypeChecker {
       case "LambdaExpr": return this.checkLambda(expr);
       case "IfExpr": return this.checkIfExpr(expr);
       case "WhenExpr": {
-        const subjectType = expr.subject ? this.checkExpr(expr.subject.expr) : null;
-        const branchTypes: JType[] = [];
-        for (const b of expr.branches) {
-          for (const c of b.conditions) {
-            if (c.kind === "WhenExprCondition") this.checkExpr(c.expr);
-            else if (c.kind === "WhenInCondition") this.checkExpr(c.expr);
+        let resultType: JType = T_UNKNOWN;
+        this.withComponentOrderNesting("when expression", () => {
+          const subjectType = expr.subject ? this.checkExpr(expr.subject.expr) : null;
+          const branchTypes: JType[] = [];
+          for (const b of expr.branches) {
+            for (const c of b.conditions) {
+              if (c.kind === "WhenExprCondition") this.checkExpr(c.expr);
+              else if (c.kind === "WhenInCondition") this.checkExpr(c.expr);
+            }
+            branchTypes.push(
+              b.body.kind === "Block" ? (this.checkBlock(b.body), T_UNIT) : this.checkExpr(b.body)
+            );
           }
-          branchTypes.push(
-            b.body.kind === "Block" ? (this.checkBlock(b.body), T_UNIT) : this.checkExpr(b.body)
-          );
-        }
-        // Exhaustiveness: when-expr on a sealed class MUST be exhaustive
-        if (subjectType) {
-          this.checkWhenExhaustiveness(expr.span, expr.branches, subjectType);
-        }
-        return this.unify(branchTypes);
+          // Exhaustiveness: when-expr on a sealed class MUST be exhaustive
+          if (subjectType) {
+            this.checkWhenExhaustiveness(expr.span, expr.branches, subjectType);
+          }
+          resultType = this.unify(branchTypes);
+        });
+        return resultType;
       }
       case "TryCatchExpr": {
-        this.checkBlock(expr.body);
-        for (const c of expr.catches) this.checkBlock(c.body);
-        if (expr.finally) this.checkBlock(expr.finally);
+        this.withComponentOrderNesting("try/catch expression", () => {
+          this.checkBlock(expr.body);
+          for (const c of expr.catches) this.checkBlock(c.body);
+          if (expr.finally) this.checkBlock(expr.finally);
+        });
         return T_UNKNOWN;
       }
       case "TypeCheckExpr": {
@@ -1283,14 +1306,14 @@ export class TypeChecker {
         }
         const prevSuspend = this.inSuspend;
         this.inSuspend = true;
-        this.checkBlock(expr.body);
+        this.withComponentOrderNesting("launch block", () => this.checkBlock(expr.body));
         this.inSuspend = prevSuspend;
         return classType("Job");
       }
       case "AsyncExpr": {
         const prevSuspend = this.inSuspend;
         this.inSuspend = true;
-        this.checkBlock(expr.body);
+        this.withComponentOrderNesting("async block", () => this.checkBlock(expr.body));
         this.inSuspend = prevSuspend;
         return classType("Deferred", [T_UNKNOWN]);
       }
@@ -1437,6 +1460,36 @@ export class TypeChecker {
   }
 
   private checkCallExpr(expr: AST.CallExpr): JType {
+    const componentOnlyName = this.getComponentOnlyCalleeName(expr.callee);
+    if (componentOnlyName) {
+      if (!this.inComponent) {
+        this.diag.error(
+          expr.span,
+          E_COMPONENT_CONTEXT_REQUIRED,
+          `'${componentOnlyName}' can only be called inside a component function`
+        );
+      } else if (this.componentCallOrderDepth > 0) {
+        const context = this.currentComponentOrderContext();
+        this.diag.error(
+          expr.span,
+          E_COMPONENT_CALL_ORDER,
+          `'${componentOnlyName}' must be called unconditionally at the top level of a component function`,
+          [
+            {
+              span: null,
+              message: context
+                ? `Invalid call occurs inside ${context}`
+                : "Invalid call occurs inside nested control flow",
+            },
+            {
+              span: null,
+              message: "Move this call to the top-level component body",
+            },
+          ]
+        );
+      }
+    }
+
     const calleeType = this.checkExpr(expr.callee);
     for (const arg of expr.args) this.checkExpr(arg.value);
 
@@ -1493,6 +1546,55 @@ export class TypeChecker {
     return T_ERROR;
   }
 
+  /**
+   * Runtime APIs that are only valid in component functions.
+   * We key by callee name to keep checks fast and diagnostics clear.
+   */
+  private isComponentOnlyApi(name: string): boolean {
+    return name === "mutableStateOf" ||
+      name === "remember" ||
+      name === "rememberMutableStateOf" ||
+      name === "collectAsState" ||
+      name === "useViewModel" ||
+      name === "LaunchedEffect" ||
+      name === "DisposableEffect" ||
+      name === "SideEffect" ||
+      name === "useMutableInteractionSource" ||
+      name === "useIsHovered" ||
+      name === "useIsFocused" ||
+      name === "useIsPressed";
+  }
+
+  private getComponentOnlyCalleeName(callee: AST.Expr): string | null {
+    if (callee.kind === "NameExpr" && this.isComponentOnlyApi(callee.name)) {
+      return callee.name;
+    }
+    if ((callee.kind === "MemberExpr" || callee.kind === "SafeMemberExpr") && this.isComponentOnlyApi(callee.member)) {
+      return callee.member;
+    }
+    return null;
+  }
+
+  private currentComponentOrderContext(): string | null {
+    if (this.componentCallOrderContextStack.length === 0) return null;
+    return this.componentCallOrderContextStack[this.componentCallOrderContextStack.length - 1]!;
+  }
+
+  private withComponentOrderNesting(context: string, fn: () => void): void {
+    if (!this.inComponent) {
+      fn();
+      return;
+    }
+    this.componentCallOrderDepth++;
+    this.componentCallOrderContextStack.push(context);
+    try {
+      fn();
+    } finally {
+      this.componentCallOrderContextStack.pop();
+      this.componentCallOrderDepth--;
+    }
+  }
+
   private checkLambda(expr: AST.LambdaExpr, expectedParamTypes?: JType[]): JType {
     const childScope = new Scope(this.scope);
 
@@ -1523,10 +1625,12 @@ export class TypeChecker {
     }
     let retType: JType = T_UNIT;
     this.withScope(childScope, () => {
-      for (const stmt of expr.body) {
-        if (stmt.kind === "ExprStmt") retType = this.checkExpr(stmt.expr);
-        else this.checkStmt(stmt);
-      }
+      this.withComponentOrderNesting("lambda body", () => {
+        for (const stmt of expr.body) {
+          if (stmt.kind === "ExprStmt") retType = this.checkExpr(stmt.expr);
+          else this.checkStmt(stmt);
+        }
+      });
     });
     const paramTypes = expr.params.length > 0
       ? expr.params.map((p) => (p.type ? this.resolveTypeRef(p.type) : T_UNKNOWN))
@@ -1535,46 +1639,50 @@ export class TypeChecker {
   }
 
   private checkIfExpr(expr: AST.IfExpr): JType {
-    this.checkExpr(expr.condition);
+    let resultType: JType = T_UNKNOWN;
+    this.withComponentOrderNesting("if expression", () => {
+      this.checkExpr(expr.condition);
 
-    // Apply smart casts in the `then` branch
-    const narrowings = this.extractSmartCasts(expr.condition);
-    const thenScope = new Scope(this.scope);
-    for (const [name, type] of narrowings) {
-      const existing = this.scope.lookup(name);
-      if (existing) thenScope.define({ ...existing, type });
-    }
-
-    const thenType = this.withScope(thenScope, () =>
-      expr.then.kind === "Block"
-        ? (this.checkBlock(expr.then), T_UNIT)
-        : this.checkExpr(expr.then)
-    );
-
-    // Apply narrowings for the else branch (e.g. `x !is T` → else: x IS T)
-    const elseNarrowings = this.extractElseSmartCasts(expr.condition);
-    let elseType: JType;
-    if (elseNarrowings.size > 0) {
-      const elseScope = new Scope(this.scope);
-      for (const [name, type] of elseNarrowings) {
+      // Apply smart casts in the `then` branch
+      const narrowings = this.extractSmartCasts(expr.condition);
+      const thenScope = new Scope(this.scope);
+      for (const [name, type] of narrowings) {
         const existing = this.scope.lookup(name);
-        if (existing) elseScope.define({ ...existing, type });
+        if (existing) thenScope.define({ ...existing, type });
       }
-      elseType = this.withScope(elseScope, () =>
-        expr.else.kind === "Block"
+
+      const thenType = this.withScope(thenScope, () =>
+        expr.then.kind === "Block"
+          ? (this.checkBlock(expr.then), T_UNIT)
+          : this.checkExpr(expr.then)
+      );
+
+      // Apply narrowings for the else branch (e.g. `x !is T` → else: x IS T)
+      const elseNarrowings = this.extractElseSmartCasts(expr.condition);
+      let elseType: JType;
+      if (elseNarrowings.size > 0) {
+        const elseScope = new Scope(this.scope);
+        for (const [name, type] of elseNarrowings) {
+          const existing = this.scope.lookup(name);
+          if (existing) elseScope.define({ ...existing, type });
+        }
+        elseType = this.withScope(elseScope, () =>
+          expr.else.kind === "Block"
+            ? (this.checkBlock(expr.else), T_UNIT)
+            : expr.else.kind === "IfExpr"
+              ? this.checkIfExpr(expr.else)
+              : this.checkExpr(expr.else)
+        );
+      } else {
+        elseType = expr.else.kind === "Block"
           ? (this.checkBlock(expr.else), T_UNIT)
           : expr.else.kind === "IfExpr"
             ? this.checkIfExpr(expr.else)
-            : this.checkExpr(expr.else)
-      );
-    } else {
-      elseType = expr.else.kind === "Block"
-        ? (this.checkBlock(expr.else), T_UNIT)
-        : expr.else.kind === "IfExpr"
-          ? this.checkIfExpr(expr.else)
-          : this.checkExpr(expr.else);
-    }
-    return this.unify([thenType, elseType]);
+            : this.checkExpr(expr.else);
+      }
+      resultType = this.unify([thenType, elseType]);
+    });
+    return resultType;
   }
 
   // ── Type resolution ────────────────────────────────────────────────────────

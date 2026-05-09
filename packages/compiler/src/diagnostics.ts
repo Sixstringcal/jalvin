@@ -135,6 +135,8 @@ export const E_OVERRIDE_NOTHING = "E0311";
 export const E_CLASS_EXTENDS_FINAL = "E0312";
 export const E_CONST_VAL_REASSIGNMENT = "E0320";
 export const E_LATEINIT_INVALID = "E0321";
+export const E_COMPONENT_CONTEXT_REQUIRED = "E0322";
+export const E_COMPONENT_CALL_ORDER = "E0323";
 
 // Codegen warnings: W0001–W0099
 export const W_UNUSED_VARIABLE = "W0001";
