@@ -52,8 +52,8 @@ importers:
   packages/cli:
     dependencies:
       '@jalvin/compiler':
-        specifier: ^2.0.35
-        version: 2.0.35
+        specifier: workspace:*
+        version: link:../compiler
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
@@ -102,8 +102,8 @@ importers:
   packages/ui:
     devDependencies:
       '@jalvin/runtime':
-        specifier: ^2.0.35
-        version: 2.0.35(react@19.2.5)
+        specifier: workspace:*
+        version: link:../runtime
       '@testing-library/jest-dom':
         specifier: ^6.9.1
         version: 6.9.1
@@ -132,8 +132,8 @@ importers:
   packages/vite-plugin:
     dependencies:
       '@jalvin/compiler':
-        specifier: ^2.0.35
-        version: 2.0.35
+        specifier: workspace:*
+        version: link:../compiler
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
@@ -165,8 +165,8 @@ importers:
   packages/webpack-plugin:
     dependencies:
       '@jalvin/compiler':
-        specifier: ^2.0.35
-        version: 2.0.35
+        specifier: workspace:*
+        version: link:../compiler
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
@@ -489,17 +489,6 @@ packages:
   '@istanbuljs/schema@0.1.6':
     resolution: {integrity: sha512-+Sg6GCR/wy1oSmQDFq4LQDAhm3ETKnorxN+y5nbLULOR3P0c14f2Wurzj3/xqPXtasLFfHd5iRFQ7AJt4KH2cw==}
     engines: {node: '>=8'}
-
-  '@jalvin/compiler@2.0.35':
-    resolution: {integrity: sha512-wgV8BBUIqadWC6ol+oSAcWHDnLfWGPBT9WEkrv2/2jqm9+lEbi3el9KWCyvx9IS+BC86Zth1sHDidNLWX17IuQ==}
-
-  '@jalvin/runtime@2.0.35':
-    resolution: {integrity: sha512-e6q3K2NRTiv7Qe/7hbA1Aydz+v/ZOxhFIDqZsiHdDsSK8+WlU53E9RHnNnBdQNamlSR+DGJoe9sUhJ+6/xTnrw==}
-    peerDependencies:
-      react: '>=18.0.0'
-    peerDependenciesMeta:
-      react:
-        optional: true
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -1835,12 +1824,6 @@ snapshots:
       wrap-ansi-cjs: wrap-ansi@7.0.0
 
   '@istanbuljs/schema@0.1.6': {}
-
-  '@jalvin/compiler@2.0.35': {}
-
-  '@jalvin/runtime@2.0.35(react@19.2.5)':
-    optionalDependencies:
-      react: 19.2.5
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
