@@ -1,6 +1,6 @@
 {
   "name": "@jalvin/cli",
-  "version": "2.0.34",
+  "version": "2.0.35",
   "description": "Jalvin language — command line interface",
   "bin": {
     "jalvin": "dist/cli.js"
@@ -15,7 +15,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@jalvin/compiler": "workspace:*"
+    "@jalvin/compiler": "^2.0.35"
   },
   "devDependencies": {
     "typescript": "^5.4.0",
