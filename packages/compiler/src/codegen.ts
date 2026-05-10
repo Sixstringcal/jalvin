@@ -107,8 +107,10 @@ export class CodeGenerator {
   private readonly opts: CodegenOptions;
   private hasComponents = false;
   private runtimeSymbolsNeeded = new Set<string>();
-  /** Names of component functions — used to detect component calls and emit them as JSX */
-  private componentNames = new Set<string>();
+  /** Names of true Jalvin components — used to emit React.createElement boundaries */
+  private userComponentNames = new Set<string>();
+  /** Names of all potential components (including UI primitives) — used to detect props-object calls */
+  private allComponentLikeNames = new Set<string>();
   /**
    * Param names for components resolved from imported local .jalvin files.
    * Maps component name → ordered list of param names.
@@ -116,6 +118,8 @@ export class CodeGenerator {
   private componentParamNames = new Map<string, string[]>();
   /** True when the program contains `import @jalvin/ui.*` — used to detect UI primitive calls */
   private hasUiStarImport = false;
+  /** Names of symbols explicitly imported from @jalvin/ui */
+  private uiNamedImports = new Set<string>();
   /** Operator overload resolutions from the type checker */
   private operatorOverloadMap = new Map<AST.BinaryExpr, string>();
   /** Type map from the type checker */
@@ -144,6 +148,11 @@ export class CodeGenerator {
     this.opts = { ...DEFAULT_CODEGEN_OPTIONS, ...opts };
   }
 
+  /** Returns true if the output should be treated as JSX (React components) */
+  private get isJsxMode(): boolean {
+    return this.opts.jsx || this.hasComponents;
+  }
+
   generate(
     program: AST.Program,
     operatorOverloads?: Map<AST.BinaryExpr, string>,
@@ -151,39 +160,47 @@ export class CodeGenerator {
   ): CodegenResult {
     if (operatorOverloads) this.operatorOverloadMap = operatorOverloads;
     if (typeMap) this.typeMap = typeMap;
+
     // Pre-scan for components (local declarations OR @jalvin/ui imports)
     this.hasComponents = program.declarations.some(
       (d) => d.kind === "ComponentDecl" ||
         (d.kind === "ClassDecl" && d.body?.members.some((m) => m.kind === "ComponentDecl"))
-    ) || program.imports.some((imp) => imp.path[0] === "@jalvin" && imp.path[1] === "ui");
+    ) || program.imports.some((imp) => imp.path[0] === "@jalvin" && imp.path[1] === "ui")
+      || this.containsJsx(program);
 
     // Collect component names for component call detection
-    this.componentNames = new Set<string>();
+    this.userComponentNames = new Set<string>();
+    this.allComponentLikeNames = new Set<string>();
     this.componentParamNames = new Map<string, string[]>();
+
     for (const decl of program.declarations) {
       if (decl.kind === "ComponentDecl") {
-        this.componentNames.add(decl.name);
+        this.userComponentNames.add(decl.name);
+        this.allComponentLikeNames.add(decl.name);
         this.componentParamNames.set(decl.name, decl.params.map((p) => p.name));
       }
       if (decl.kind === "ClassDecl" && decl.body) {
         for (const m of decl.body.members) {
           if (m.kind === "ComponentDecl") {
-            this.componentNames.add(m.name);
+            this.userComponentNames.add(m.name);
+            this.allComponentLikeNames.add(m.name);
             this.componentParamNames.set(m.name, m.params.map((p) => p.name));
           }
         }
       }
     }
+
     this.hasUiStarImport = false;
+    this.uiNamedImports = new Set<string>();
     for (const imp of program.imports) {
-      // Named imports from @jalvin/ui are treated as potential component functions.
-      // Hooks (e.g. useIsHovered) are filtered out at call-site by the type-based guard below.
-      if (imp.path[0] === "@jalvin" && imp.path[1] === "ui" && !imp.star) {
-        this.componentNames.add(imp.path[imp.path.length - 1]!);
-      }
-      // Star import from @jalvin/ui — UI primitives won't be in componentNames
-      if (imp.path[0] === "@jalvin" && imp.path[1] === "ui" && imp.star) {
-        this.hasUiStarImport = true;
+      if (imp.path[0] === "@jalvin" && imp.path[1] === "ui") {
+        if (imp.star) {
+          this.hasUiStarImport = true;
+        } else {
+          const name = imp.path[imp.path.length - 1]!;
+          this.uiNamedImports.add(name);
+          this.allComponentLikeNames.add(name);
+        }
       }
     }
 
@@ -227,6 +244,28 @@ export class CodeGenerator {
       lineMap: this.w.lineMap,
       isJsx: this.hasComponents,
     };
+  }
+
+  /** Walk AST to see if it contains any JsxElement nodes */
+  private containsJsx(program: AST.Program): boolean {
+    let found = false;
+    const walk = (val: unknown): void => {
+      if (found || !val || typeof val !== "object") return;
+      if (Array.isArray(val)) {
+        for (const item of val) walk(item);
+        return;
+      }
+      const obj = val as Record<string, unknown>;
+      if (obj["kind"] === "JsxElement") {
+        found = true;
+        return;
+      }
+      for (const propVal of Object.values(obj)) {
+        walk(propVal);
+      }
+    };
+    for (const decl of program.declarations) walk(decl);
+    return found;
   }
 
   // ── Preamble & imports ─────────────────────────────────────────────────────
@@ -455,7 +494,7 @@ export class CodeGenerator {
 
     const hasChildren = decl.params.some((p) => p.name === "children");
 
-    if (this.opts.jsx) {
+    if (this.isJsxMode) {
       // React.createElement format: children are part of props destructuring
       // Props interface
       if (decl.params.length > 0) {
@@ -1716,7 +1755,7 @@ export class CodeGenerator {
     // component fun declarations intentionally omit paramNames from their func type.
     const isKnownPositionalFunc = calleeType?.tag === "func" && calleeType.paramNames !== undefined;
     if (!isKnownPositionalFunc && expr.callee.kind === "NameExpr" && (
-      this.componentNames.has(expr.callee.name) ||
+      this.allComponentLikeNames.has(expr.callee.name) ||
       (this.hasUiStarImport && (!calleeType || calleeType.tag === "unknown") && /^[A-Z]/.test(expr.callee.name))
     )) {
       return this.emitComponentCall(expr);
@@ -1784,7 +1823,7 @@ export class CodeGenerator {
   /**
    * For each non-scoped local import (e.g. `import src.views.MoveCounterView.MoveCounter`),
    * attempt to load and parse the corresponding .jalvin source file. If the named symbol is
-   * a `component fun`, register it in `componentNames` and record its param names so that
+   * a `component fun`, register it in `userComponentNames` and record its param names so that
    * call sites can emit the correct props-object invocation.
    */
   private resolveLocalComponentImports(program: AST.Program, sourceRoot: string): void {
@@ -1813,7 +1852,8 @@ export class CodeGenerator {
             if (!name) continue;
             exportedNames.push(name);
             if (d.kind === "ComponentDecl") {
-              this.componentNames.add(name);
+              this.userComponentNames.add(name);
+              this.allComponentLikeNames.add(name);
               this.componentParamNames.set(name, d.params.map((p) => p.name));
               this.hasComponents = true;
             }
@@ -1851,7 +1891,8 @@ export class CodeGenerator {
             d.kind === "ComponentDecl" && d.name === rawSymbolName
         );
         if (compDecl) {
-          this.componentNames.add(symbolName);
+          this.userComponentNames.add(symbolName);
+          this.allComponentLikeNames.add(symbolName);
           this.componentParamNames.set(symbolName, compDecl.params.map((p) => p.name));
           this.hasComponents = true;
         }
@@ -1865,8 +1906,8 @@ export class CodeGenerator {
    *  In Jalvin, class names always start with an uppercase letter. */
   private isConstructorCall(calleeExpr: AST.Expr): boolean {
     if (calleeExpr.kind === "NameExpr") {
-      // Names in componentNames are factory functions (UI primitives, components), not constructors
-      if (this.componentNames.has(calleeExpr.name)) return false;
+      // Names in allComponentLikeNames are factory functions (UI primitives, components), not constructors
+      if (this.allComponentLikeNames.has(calleeExpr.name)) return false;
       // Class names start with uppercase; function names start with lowercase
       return /^[A-Z]/.test(calleeExpr.name);
     }
@@ -1874,6 +1915,21 @@ export class CodeGenerator {
       // e.g. UiState.Success(data), Discount.Percentage(0.1)
       return /^[A-Z]/.test(calleeExpr.member);
     }
+    return false;
+  }
+
+  /** Returns true if a name refers to a "true" Jalvin component that needs a React boundary */
+  private isTrueComponent(name: string): boolean {
+    // 1. Locally declared or imported .jalvin components
+    if (this.userComponentNames.has(name)) return true;
+    
+    // 2. Named imports from @jalvin/ui are considered UI primitives (functions) 
+    // unless they were also identified as components. 
+    // For now, everything in @jalvin/ui is treated as a UI primitive (function call)
+    // to maintain compatibility with the (props, children) signature.
+    if (this.uiNamedImports.has(name)) return false;
+
+    // 3. Fallback for star-imported @jalvin/ui
     return false;
   }
 
@@ -1905,15 +1961,15 @@ export class CodeGenerator {
 
     const propsStr = props.length > 0 ? `{ ${props.join(", ")} }` : "{}";
 
-    if (this.opts.jsx) {
-      // React.createElement format for JSX output
+    if (this.isJsxMode && this.isTrueComponent(tag)) {
+      // React.createElement format for JSX output (True Components only)
       if (expr.trailingLambda) {
         const children = this.emitLambdaBodyAsDomChildren(expr.trailingLambda);
         return `React.createElement(${tag}, ${propsStr}, [${children}])`;
       }
       return `React.createElement(${tag}, ${propsStr})`;
     } else {
-      // Direct function call format for non-JSX output
+      // Direct function call format for non-JSX output OR UI Primitives
       if (expr.trailingLambda) {
         const children = this.emitLambdaBodyAsDomChildren(expr.trailingLambda);
         return `${tag}(${propsStr}, [${children}])`;

@@ -402,23 +402,21 @@ component fun Hr() {
     expect(code).not.toContain("HTMLElement");
   });
 
-  it("emits children as second positional param, not in props destructure", () => {
+  it("emits children inside the props destructure when in JSX mode", () => {
     const code = gen(`component fun DocPage(title: String, children: Any) { return (<div />) }`);
-    // children must NOT appear inside the props destructure
-    expect(code).not.toMatch(/\{\s*[^}]*children[^}]*\}\s*:/);
-    // children must appear as a second parameter
-    expect(code).toMatch(/function DocPage\(\s*\{[^}]*title[^}]*\}[^,]*,\s*children\?\s*:/);
+    // children MUST appear inside the props destructure in JSX mode
+    expect(code).toMatch(/\{\s*[^}]*title[^}]*,\s*children[^}]*\}\s*:\s*DocPageProps/);
   });
 
-  it("excludes children from the Props interface", () => {
+  it("includes children in the Props interface when in JSX mode", () => {
     const code = gen(`component fun DocPage(title: String, children: Any) { return (<div />) }`);
-    // Props interface should not contain a children field
+    // Props interface should contain a children field
     const propsBlock = code.match(/interface DocPageProps \{[^}]*\}/)?.[0] ?? "";
-    expect(propsBlock).not.toContain("children");
+    expect(propsBlock).toContain("children");
     expect(propsBlock).toContain("title");
   });
 
-  it("call site passes trailing-lambda as second arg matching children param", () => {
+  it("call site uses React.createElement for user components", () => {
     const code = gen(`
       import @jalvin/ui.Column
       import @jalvin/ui.Text
@@ -429,18 +427,16 @@ component fun Hr() {
         return DocPage(title = "Hello") { Text(text = "hi") }
       }
     `);
-    // Call site: second arg is an array of children, matching the second param
-    expect(code).toContain(`DocPage({ title: "Hello" }, [`);
+    // Call site: uses React.createElement for the user component DocPage
+    expect(code).toContain(`React.createElement(DocPage, { title: "Hello" }, [`);
   });
 
-  it("children-only component emits {} first param to absorb empty props object", () => {
+  it("children-only component emits props destructure for children", () => {
     const code = gen(`component fun DocTheme(children: Any) { return (<div />) }`);
-    // Must NOT be: function DocTheme(children?: any[])  ← would eat the {} from call site
-    // Must be:     function DocTheme({}, children?: any[])
-    expect(code).toMatch(/function DocTheme\(\{\},\s*children\?\s*:/);
+    expect(code).toMatch(/function DocTheme\(\{\s*children\s*\}\s*:\s*DocThemeProps\)/);
   });
 
-  it("children-only component call site still emits ({}, [children])", () => {
+  it("children-only component call site uses React.createElement", () => {
     const code = gen(`
       import @jalvin/ui.Text
       component fun DocTheme(children: Any) { return (<div />) }
@@ -448,7 +444,7 @@ component fun Hr() {
         return DocTheme() { Text(text = "hi") }
       }
     `);
-    expect(code).toContain(`DocTheme({}, [`);
+    expect(code).toContain(`React.createElement(DocTheme, {}, [`);
   });
 });
 
@@ -516,7 +512,7 @@ describe("Codegen — local wildcard imports", () => {
     expect(result.code).toContain("import { Footer, Header }");
     expect(result.code).not.toContain("import * as");
     // Header call should be emitted as a component call
-    expect(result.code).toContain(`Header({ title: "Hi" })`)
+    expect(result.code).toContain(`React.createElement(Header, { title: "Hi" })`)
   });
 });
 
@@ -881,8 +877,8 @@ component fun CubeControlsView(vm: Any) {
   MoveCounter(vm)
 }`;
       const result = compile(src, "<test>", { sourceRoot: tmpDir });
-      // Positional arg 'vm' should be wrapped into a props object: MoveCounter({ vm })
-      expect(result.code).toContain("MoveCounter({ vm })");
+      // Positional arg 'vm' should be wrapped into a props object: React.createElement(MoveCounter, { vm })
+      expect(result.code).toContain("React.createElement(MoveCounter, { vm })");
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -930,8 +926,8 @@ component fun CubeControlsView(vm: Any) {
   MoveCounter(vm)
 }`;
       const result = compile(src, "<test>", { sourceRoot: tmpDir });
-      // Param name is 'viewModel' from the component definition, so MoveCounter({ viewModel: vm })
-      expect(result.code).toContain("MoveCounter({ viewModel: vm })");
+      // Param name is 'viewModel' from the component definition, so React.createElement(MoveCounter, { viewModel: vm })
+      expect(result.code).toContain("React.createElement(MoveCounter, { viewModel: vm })");
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

@@ -52,8 +52,8 @@ importers:
   packages/cli:
     dependencies:
       '@jalvin/compiler':
-        specifier: ^2.0.36
-        version: 2.0.36
+        specifier: ^2.0.37
+        version: 2.0.37
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
@@ -102,8 +102,8 @@ importers:
   packages/ui:
     devDependencies:
       '@jalvin/runtime':
-        specifier: ^2.0.36
-        version: 2.0.36(react@19.2.5)
+        specifier: ^2.0.37
+        version: 2.0.37(react@19.2.5)
       '@testing-library/jest-dom':
         specifier: ^6.9.1
         version: 6.9.1
@@ -132,8 +132,8 @@ importers:
   packages/vite-plugin:
     dependencies:
       '@jalvin/compiler':
-        specifier: ^2.0.36
-        version: 2.0.36
+        specifier: ^2.0.37
+        version: 2.0.37
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
@@ -165,8 +165,8 @@ importers:
   packages/webpack-plugin:
     dependencies:
       '@jalvin/compiler':
-        specifier: ^2.0.36
-        version: 2.0.36
+        specifier: ^2.0.37
+        version: 2.0.37
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
@@ -490,11 +490,11 @@ packages:
     resolution: {integrity: sha512-+Sg6GCR/wy1oSmQDFq4LQDAhm3ETKnorxN+y5nbLULOR3P0c14f2Wurzj3/xqPXtasLFfHd5iRFQ7AJt4KH2cw==}
     engines: {node: '>=8'}
 
-  '@jalvin/compiler@2.0.36':
-    resolution: {integrity: sha512-HrWtqpuz+Mhc017OPhpWktUNEIEwE5L2LsjhAbuVTcYLYe+QzS3QKg6Pnn158PbSHVLugEgu93h+/5sAB0KzzA==}
+  '@jalvin/compiler@2.0.37':
+    resolution: {integrity: sha512-YkbSJS0Ohlk6itOWVmJ8KRgs2JGCqiJBcwWHvnIzrsyx3IHFKpwciPUHSkyHrgrV2gttn4pVw6UkBR8fGbqmYA==}
 
-  '@jalvin/runtime@2.0.36':
-    resolution: {integrity: sha512-y/HPQpbEOqc/dPg2JyZZrDbNt9eG9YJv44xvNlXoO23NsEK7BtpwqQilh7m83lD9AMAdX5L3FeuIw9ugOQnflg==}
+  '@jalvin/runtime@2.0.37':
+    resolution: {integrity: sha512-pbn2z36bJ+ed373lTUm6XojZkbRkeBmxY18z208jcpBPYI6LIWA51uDQfXAX9JaOuCm4fQ24d76gcx+mRLibTQ==}
     peerDependencies:
       react: '>=18.0.0'
     peerDependenciesMeta:
@@ -1836,9 +1836,9 @@ snapshots:
 
   '@istanbuljs/schema@0.1.6': {}
 
-  '@jalvin/compiler@2.0.36': {}
+  '@jalvin/compiler@2.0.37': {}
 
-  '@jalvin/runtime@2.0.36(react@19.2.5)':
+  '@jalvin/runtime@2.0.37(react@19.2.5)':
     optionalDependencies:
       react: 19.2.5
 

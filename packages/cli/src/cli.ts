@@ -172,6 +172,7 @@ async function runBuild(args: CliArgs): Promise<void> {
   for (const file of files) {
     const source = fs.readFileSync(file, "utf8");
     const result = compile(source, file, {
+      jsx: config.jsx,
       emitTypes: args.emitTypes || config.emitTypes,
     });
 
