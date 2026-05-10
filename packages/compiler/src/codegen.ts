@@ -143,6 +143,7 @@ export class CodeGenerator {
    * Maps module specifier (e.g. "src/views") → sorted list of exported names.
    */
   private localStarExports = new Map<string, string[]>();
+  private isInClass = false;
 
   constructor(opts: Partial<CodegenOptions> = {}) {
     this.opts = { ...DEFAULT_CODEGEN_OPTIONS, ...opts };
@@ -490,14 +491,14 @@ export class CodeGenerator {
   private emitComponentDecl(decl: AST.ComponentDecl): void {
     this.emitAnnotations(decl.modifiers);
     this.hasComponents = true;
-    const vis = this.exportPrefix(decl.modifiers);
+    const vis = this.isInClass ? this.visibilityPrefix(decl.modifiers) : this.exportPrefix(decl.modifiers);
 
     const hasChildren = decl.params.some((p) => p.name === "children");
 
     if (this.isJsxMode) {
       // React.createElement format: children are part of props destructuring
       // Props interface
-      if (decl.params.length > 0) {
+      if (!this.isInClass && decl.params.length > 0) {
         this.w.writeIndentedLine(`interface ${decl.name}Props {`);
         this.w.pushIndent();
         for (const p of decl.params) {
@@ -510,17 +511,29 @@ export class CodeGenerator {
         this.w.writeLine();
       }
       
+      const propsType = this.isInClass 
+        ? `{ ${decl.params.map(p => {
+            const optional = p.defaultValue || p.name === "children" ? "?" : "";
+            const typeStr = this.opts.emitTypes ? this.emitTypeRef(p.type) : "any";
+            return `readonly ${p.name}${optional}: ${typeStr}`;
+          }).join("; ")} }`
+        : `${decl.name}Props`;
+
       const propsDestructure = decl.params.length > 0
-        ? `{ ${decl.params.map((p) => p.name + (p.defaultValue ? ` = ${this.emitExpr(p.defaultValue)}` : "")).join(", ")} }: ${decl.name}Props`
+        ? `{ ${decl.params.map((p) => p.name + (p.defaultValue ? ` = ${this.emitExpr(p.defaultValue)}` : "")).join(", ")} }: ${propsType}`
         : "";
       
-      this.w.writeIndentedLine(`${vis}function ${decl.name}(${propsDestructure}) {`);
+      const sig = this.isInClass 
+        ? `${decl.name}(${propsDestructure})`
+        : `function ${decl.name}(${propsDestructure})`;
+
+      this.w.writeIndentedLine(`${vis}${sig} {`);
     } else {
       // Direct function call format: children are separate positional parameter
       const propsParams = decl.params.filter((p) => p.name !== "children");
 
       // Props interface
-      if (propsParams.length > 0) {
+      if (!this.isInClass && propsParams.length > 0) {
         this.w.writeIndentedLine(`interface ${decl.name}Props {`);
         this.w.pushIndent();
         for (const p of propsParams) {
@@ -533,10 +546,18 @@ export class CodeGenerator {
         this.w.writeLine();
       }
 
+      const propsType = this.isInClass 
+        ? `{ ${propsParams.map(p => {
+            const optional = p.defaultValue ? "?" : "";
+            const typeStr = this.opts.emitTypes ? this.emitTypeRef(p.type) : "any";
+            return `readonly ${p.name}${optional}: ${typeStr}`;
+          }).join("; ")} }`
+        : `${decl.name}Props`;
+
       // Build the function signature
       let signature = "";
       if (propsParams.length > 0) {
-        signature = `{ ${propsParams.map((p) => p.name + (p.defaultValue ? ` = ${this.emitExpr(p.defaultValue)}` : "")).join(", ")} }: ${decl.name}Props`;
+        signature = `{ ${propsParams.map((p) => p.name + (p.defaultValue ? ` = ${this.emitExpr(p.defaultValue)}` : "")).join(", ")} }: ${propsType}`;
       } else if (hasChildren) {
         // Children-only component needs {} as first param to absorb the empty props object from call site
         signature = "{}";
@@ -546,7 +567,11 @@ export class CodeGenerator {
         signature += signature ? ", children?: any" : "children?: any";
       }
       
-      this.w.writeIndentedLine(`${vis}function ${decl.name}(${signature}) {`);
+      const sig = this.isInClass 
+        ? `${decl.name}(${signature})`
+        : `function ${decl.name}(${signature})`;
+
+      this.w.writeIndentedLine(`${vis}${sig} {`);
     }
     
     this.w.pushIndent();
@@ -1133,11 +1158,17 @@ export class CodeGenerator {
   // ── class body ─────────────────────────────────────────────────────────────
 
   private emitClassBody(body: AST.ClassBody): void {
-    for (const member of body.members) {
-      // InitBlocks are emitted inside the constructor by emitPrimaryConstructorProps
-      if (member.kind === "InitBlock") continue;
-      this.emitClassMember(member);
-      this.w.writeLine();
+    const old = this.isInClass;
+    this.isInClass = true;
+    try {
+      for (const member of body.members) {
+        // InitBlocks are emitted inside the constructor by emitPrimaryConstructorProps
+        if (member.kind === "InitBlock") continue;
+        this.emitClassMember(member);
+        this.w.writeLine();
+      }
+    } finally {
+      this.isInClass = old;
     }
   }
 
@@ -1754,12 +1785,19 @@ export class CodeGenerator {
     // That indicates a regular function (fun) or a built-in hook — both use positional calling.
     // component fun declarations intentionally omit paramNames from their func type.
     const isKnownPositionalFunc = calleeType?.tag === "func" && calleeType.paramNames !== undefined;
-    if (!isKnownPositionalFunc && expr.callee.kind === "NameExpr" && (
-      this.allComponentLikeNames.has(expr.callee.name) ||
-      (this.hasUiStarImport && (!calleeType || calleeType.tag === "unknown") && /^[A-Z]/.test(expr.callee.name))
-    )) {
+    let isComponentLike = false;
+    if (expr.callee.kind === "NameExpr") {
+      isComponentLike = this.allComponentLikeNames.has(expr.callee.name) ||
+        (this.hasUiStarImport && (!calleeType || calleeType.tag === "unknown") && /^[A-Z]/.test(expr.callee.name));
+    } else if (expr.callee.kind === "MemberExpr" || expr.callee.kind === "SafeMemberExpr") {
+      const member = (expr.callee as any).member;
+      isComponentLike = this.allComponentLikeNames.has(member);
+    }
+
+    if (!isKnownPositionalFunc && isComponentLike) {
       return this.emitComponentCall(expr);
     }
+
     let finalArgs: string[] = [];
 
     if (calleeType && calleeType.tag === "func" && calleeType.paramNames) {
@@ -1857,6 +1895,15 @@ export class CodeGenerator {
               this.componentParamNames.set(name, d.params.map((p) => p.name));
               this.hasComponents = true;
             }
+            if (d.kind === "ClassDecl" && d.body) {
+              for (const m of d.body.members) {
+                if (m.kind === "ComponentDecl") {
+                  this.allComponentLikeNames.add(m.name);
+                  this.componentParamNames.set(m.name, m.params.map((p) => p.name));
+                  this.hasComponents = true;
+                }
+              }
+            }
           }
           if (exportedNames.length > 0) {
             this.localStarExports.set(moduleSpecifier, exportedNames);
@@ -1885,16 +1932,26 @@ export class CodeGenerator {
         const ast = parse(tokens, candidatePath, diag, source);
         if (diag.hasErrors) continue;
 
-        // Look for a top-level ComponentDecl matching the imported symbol name
-        const compDecl = ast.declarations.find(
-          (d): d is AST.ComponentDecl =>
-            d.kind === "ComponentDecl" && d.name === rawSymbolName
+        // Look for a top-level ComponentDecl OR ClassDecl matching the imported symbol name
+        const decl = ast.declarations.find(
+          (d): d is AST.ComponentDecl | AST.ClassDecl =>
+            ((d.kind === "ComponentDecl" || d.kind === "ClassDecl") && (d as any).name === rawSymbolName)
         );
-        if (compDecl) {
+        if (decl?.kind === "ComponentDecl") {
           this.userComponentNames.add(symbolName);
           this.allComponentLikeNames.add(symbolName);
-          this.componentParamNames.set(symbolName, compDecl.params.map((p) => p.name));
+          this.componentParamNames.set(symbolName, decl.params.map((p) => p.name));
           this.hasComponents = true;
+        } else if (decl?.kind === "ClassDecl" && decl.body) {
+          // If a class was imported, register its member components
+          for (const m of decl.body.members) {
+            if (m.kind === "ComponentDecl") {
+              this.userComponentNames.add(m.name);
+              this.allComponentLikeNames.add(m.name);
+              this.componentParamNames.set(m.name, m.params.map((p) => p.name));
+              this.hasComponents = true;
+            }
+          }
         }
       } catch {
         // Silently skip if the file cannot be read or parsed
@@ -1913,6 +1970,7 @@ export class CodeGenerator {
     }
     if (calleeExpr.kind === "MemberExpr") {
       // e.g. UiState.Success(data), Discount.Percentage(0.1)
+      if (this.allComponentLikeNames.has(calleeExpr.member)) return false;
       return /^[A-Z]/.test(calleeExpr.member);
     }
     return false;
@@ -1937,12 +1995,14 @@ export class CodeGenerator {
 
   /** Emit `Column(modifier = ...) { ... }` as either direct calls or React.createElement depending on jsx option */
   private emitComponentCall(expr: AST.CallExpr): string {
-    const tag = (expr.callee as AST.NameExpr).name;
+    const callee = this.emitExpr(expr.callee);
+    const tagName = expr.callee.kind === "NameExpr" ? expr.callee.name : (expr.callee as any).member;
     const calleeType = this.typeMap.get(expr.callee);
+
     // Param names from type checker (for same-file components) or resolved from imported files
     const paramNames =
       (calleeType?.tag === "func" ? calleeType.paramNames : undefined) ??
-      this.componentParamNames.get(tag);
+      (tagName ? this.componentParamNames.get(tagName) : undefined);
 
     // Build props object from named/positional args
     const props: string[] = [];
@@ -1961,20 +2021,20 @@ export class CodeGenerator {
 
     const propsStr = props.length > 0 ? `{ ${props.join(", ")} }` : "{}";
 
-    if (this.isJsxMode && this.isTrueComponent(tag)) {
+    if (this.isJsxMode && tagName && this.isTrueComponent(tagName)) {
       // React.createElement format for JSX output (True Components only)
       if (expr.trailingLambda) {
         const children = this.emitLambdaBodyAsDomChildren(expr.trailingLambda);
-        return `React.createElement(${tag}, ${propsStr}, [${children}])`;
+        return `React.createElement(${callee}, ${propsStr}, [${children}])`;
       }
-      return `React.createElement(${tag}, ${propsStr})`;
+      return `React.createElement(${callee}, ${propsStr})`;
     } else {
       // Direct function call format for non-JSX output OR UI Primitives
       if (expr.trailingLambda) {
         const children = this.emitLambdaBodyAsDomChildren(expr.trailingLambda);
-        return `${tag}(${propsStr}, [${children}])`;
+        return `${callee}(${propsStr}, [${children}])`;
       }
-      return `${tag}(${propsStr})`;
+      return `${callee}(${propsStr})`;
     }
   }
 

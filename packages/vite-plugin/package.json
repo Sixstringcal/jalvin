@@ -1,6 +1,6 @@
 {
   "name": "@jalvin/vite-plugin",
-  "version": "2.0.37",
+  "version": "2.0.38",
   "description": "Vite plugin for the Jalvin language — import .jalvin files directly",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -24,7 +24,7 @@
     "vite": ">=5.0.0"
   },
   "dependencies": {
-    "@jalvin/compiler": "^2.0.37"
+    "@jalvin/compiler": "^2.0.38"
   },
   "devDependencies": {
     "typescript": "^5.4.0",

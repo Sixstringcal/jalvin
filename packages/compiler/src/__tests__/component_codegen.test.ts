@@ -66,4 +66,66 @@ describe("Component Codegen (React.createElement)", () => {
 
     expect(code).toContain('return React.createElement(Avatar, { url: "https://example.com/a.png", size: 80 })');
   });
+
+  it("uses React.createElement for conditional component calls to ensure boundaries", () => {
+    const code = gen(`
+      import @jalvin/runtime.*
+      component fun ChildA() { val x = remember { "A" } }
+      component fun ChildB() { val x = remember { "B" } }
+      component fun App(showA: Boolean) {
+          if (showA) {
+              ChildA()
+          } else {
+              ChildB()
+          }
+      }
+    `);
+
+    expect(code).toContain("return React.createElement(ChildA, {})");
+    expect(code).toContain("return React.createElement(ChildB, {})");
+  });
+
+  it("uses React.createElement for component calls inside loops", () => {
+    const code = gen(`
+      import @jalvin/ui.Column
+      component fun Item(id: Int) { }
+      component fun App(items: List<Int>) {
+          Column {
+              for (item in items) {
+                  Item(id = item)
+              }
+          }
+      }
+    `);
+
+    expect(code).toContain("React.createElement(Item, { id: item })");
+  });
+
+  it("emits valid class method syntax for components declared inside classes", () => {
+    const code = gen(`
+      import @jalvin/ui.Text
+      class MyView() {
+          component fun SubComp(label: String) {
+              Text(text = label)
+          }
+      }
+    `);
+
+    expect(code).toContain("SubComp({ label }: { readonly label: any }) {");
+    expect(code).toContain("return Text({ text: label })");
+  });
+
+  it("uses React.createElement for member component calls", () => {
+    const code = gen(`
+      class MyView() {
+          component fun SubComp() { }
+      }
+      component fun App() {
+          val view = MyView()
+          view.SubComp()
+      }
+    `);
+
+    expect(code).toContain("return React.createElement(view.SubComp, {})");
+  });
 });

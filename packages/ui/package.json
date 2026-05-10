@@ -1,6 +1,6 @@
 {
   "name": "@jalvin/ui",
-  "version": "2.0.37",
+  "version": "2.0.38",
   "description": "Jalvin UI — Compose-style component library (Column, Row, Box, Button, Text, …)",
   "type": "module",
   "main": "dist/index.js",
@@ -28,7 +28,7 @@
     "react": ">=18.0.0"
   },
   "devDependencies": {
-    "@jalvin/runtime": "^2.0.37",
+    "@jalvin/runtime": "^2.0.38",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^20.0.0",
