@@ -1,7 +1,7 @@
 // @jalvin/runtime — public API
 
 // HTTP client
-export { Bibi, BibiRequestBuilder, BibiError } from "./bibi.js";
+export { Bibi, BibiRequestBuilder, BibiError, headers, timeout } from "./bibi.js";
 export type { BibiMethod, BibiRequestOptions, BibiResponse, BibiInterceptor } from "./bibi.js";
 
 // Coroutines
@@ -27,14 +27,17 @@ export {
 } from "./stateflow.js";
 export type { StateFlow, Subscriber, Unsubscribe } from "./stateflow.js";
 
-// UI hooks (React)
+// UI hooks & Rendering
+export { jalvinCreateElement } from "./dom.js";
+
 export {
   mutableStateOf, remember, rememberMutableStateOf,
-  collectAsState, useViewModel,
+  collectAsState,
   LaunchedEffect, DisposableEffect, SideEffect,
   WindowSizeClassProvider,
   calculateWindowSizeClass,
   widthToSizeClass, heightToSizeClass,
+  render,
 } from "./ui.js";
 export type { MutableState, WindowSizeClass, WindowSizeClassState } from "./ui.js";
 

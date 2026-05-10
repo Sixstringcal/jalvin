@@ -1,8 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Jalvin Code Generator — AST → TypeScript/TSX
+// Jalvin Code Generator — AST → TypeScript
 //
 // Design principles:
-//   • component declarations  → React functional components (TSX)
+//   • component declarations  → Functional components (standard TS)
 //   • data class              → class with auto-generated copy(), equals(), toString()
 //   • sealed class            → TypeScript discriminated union + base class
 //   • extension functions     → module-level functions with receiver as first param,
@@ -70,8 +70,6 @@ class Writer {
 // ---------------------------------------------------------------------------
 
 export interface CodegenOptions {
-  /** Emit .tsx (React JSX) output — set for files containing `component` decls */
-  readonly jsx: boolean;
   /** Target module format */
   readonly module: "esm" | "cjs";
   /** Emit type annotations in output (verbose but useful for debugging) */
@@ -89,7 +87,6 @@ export interface CodegenOptions {
 }
 
 export const DEFAULT_CODEGEN_OPTIONS: CodegenOptions = {
-  jsx: false,
   module: "esm",
   emitTypes: false,
   runtimeImport: "@jalvin/runtime",
@@ -98,8 +95,8 @@ export const DEFAULT_CODEGEN_OPTIONS: CodegenOptions = {
 export interface CodegenResult {
   readonly code: string;
   readonly lineMap: number[];
-  /** Whether JSX was emitted (caller should rename output to .tsx) */
-  readonly isJsx: boolean;
+  /** True if the program contains component declarations or UI imports. */
+  readonly hasComponents: boolean;
 }
 
 export class CodeGenerator {
@@ -107,7 +104,7 @@ export class CodeGenerator {
   private readonly opts: CodegenOptions;
   private hasComponents = false;
   private runtimeSymbolsNeeded = new Set<string>();
-  /** Names of true Jalvin components — used to emit React.createElement boundaries */
+  /** Names of true Jalvin components — used to detect functional calls */
   private userComponentNames = new Set<string>();
   /** Names of all potential components (including UI primitives) — used to detect props-object calls */
   private allComponentLikeNames = new Set<string>();
@@ -147,11 +144,6 @@ export class CodeGenerator {
 
   constructor(opts: Partial<CodegenOptions> = {}) {
     this.opts = { ...DEFAULT_CODEGEN_OPTIONS, ...opts };
-  }
-
-  /** Returns true if the output should be treated as JSX (React components) */
-  private get isJsxMode(): boolean {
-    return this.opts.jsx || this.hasComponents;
   }
 
   generate(
@@ -243,7 +235,7 @@ export class CodeGenerator {
     return {
       code,
       lineMap: this.w.lineMap,
-      isJsx: this.hasComponents,
+      hasComponents: this.hasComponents,
     };
   }
 
@@ -273,9 +265,13 @@ export class CodeGenerator {
 
   private buildPreamble(): string {
     const lines: string[] = [];
+    lines.push("// ─────────────────────────────────────────────────────────────────────────────");
+    lines.push("// JALVIN COMPILER V5 - PURE VANILLA - NO REACT ALLOWED");
+    lines.push(`// BUILD ID: ${Date.now()}`);
+    lines.push("// ─────────────────────────────────────────────────────────────────────────────");
 
     if (this.hasComponents) {
-      lines.push('import React from "react";');
+      this.runtimeSymbolsNeeded.add("jalvinCreateElement");
     }
 
     // Emit compiler-injected runtime symbols, but only those NOT already covered
@@ -295,19 +291,6 @@ export class CodeGenerator {
     const sourceRoot = this.opts.sourceRoot ?? process.cwd();
     // Re-emit user imports as ES imports
     for (const imp of program.imports) {
-      // Build module specifier.
-      //
-      // Scoped packages (@org/pkg.Symbol): symbol is an export from the package,
-      // strip the last segment.
-      //   import @jalvin/ui.Column       → import { Column } from "@jalvin/ui"
-      //   import @jalvin/runtime.*       → import * as runtime from "@jalvin/runtime"
-      //
-      // Local imports (a.b.C): check whether the preceding segments already
-      // resolve to a file on disk.
-      //   import src.models.Rotation     → src/models/Rotation.ts does NOT exist
-      //                                    → import { Rotation } from "src/models/Rotation"
-      //   import src.models.css.Css      → src/models/css.ts DOES exist
-      //                                    → import { Css } from "src/models/css"
       const isScoped = imp.path[0]!.startsWith("@");
 
       let moduleSpecifier: string;
@@ -321,8 +304,7 @@ export class CodeGenerator {
         const moduleParts = imp.path.slice(0, -1);
         moduleSpecifier = moduleParts[0] + "/" + moduleParts.slice(1).join("/");
       } else {
-        // Non-scoped import: prefer local-file convention unless this looks like
-        // an installed npm package path (e.g. cubing/twisty.TwistyPlayer).
+        // Non-scoped import: prefer local-file convention
         const precedingParts = imp.path.slice(0, -1);
         const precedingRelPath = precedingParts.join("/");
         const fileExts = [".ts", ".tsx", ".jalvin"];
@@ -331,26 +313,20 @@ export class CodeGenerator {
         );
         const looksLikeNpmPackage = this.isLikelyNodeModuleImport(imp.path, sourceRoot);
         moduleSpecifier = precedingIsFile
-          ? precedingRelPath          // src.models.css.Css → "src/models/css"
+          ? precedingRelPath
           : looksLikeNpmPackage
-            ? precedingRelPath        // cubing.twisty.TwistyPlayer → "cubing/twisty"
-            : imp.path.join("/");    // src.models.Rotation → "src/models/Rotation"
+            ? precedingRelPath
+            : imp.path.join("/");
       }
 
       if (imp.star && isScoped && this.externalStarCandidates.size > 0) {
-        // Named-import expansion of a scoped star import.
-        // Emit explicit named imports for each external symbol used in the file so
-        // that symbols like `ViewModel`, `mutableStateOf` are directly in scope.
         const symbols = [...this.externalStarCandidates].sort();
         this.w.writeIndentedLine(`import { ${symbols.join(", ")} } from "${moduleSpecifier}";`);
         this.handledStarImportModules.add(moduleSpecifier);
       } else if (imp.star && !isScoped && this.localStarExports.has(moduleSpecifier)) {
-        // Local wildcard import: import src.module.* — expand to named imports
-        // so all exported symbols are directly in scope (no namespace qualifier needed).
         const symbols = this.localStarExports.get(moduleSpecifier)!.slice().sort();
         this.w.writeIndentedLine(`import { ${symbols.join(", ")} } from "${moduleSpecifier}";`);
       } else if (imp.star) {
-        // Fallback: namespace import (multiple scoped star imports or no candidates).
         this.w.writeIndentedLine(`import * as ${imp.path[imp.path.length - 1]!} from "${moduleSpecifier}";`);
       } else if (imp.alias) {
         const named = imp.path[imp.path.length - 1]!;
@@ -362,11 +338,6 @@ export class CodeGenerator {
     if (program.imports.length > 0) this.w.writeLine();
   }
 
-  /**
-   * Heuristic for non-scoped imports: if the first path segment resolves to an
-   * installed package in node_modules, treat the import as npm/ESM and strip
-   * the trailing symbol name from the module specifier.
-   */
   private isLikelyNodeModuleImport(pathParts: ReadonlyArray<string>, sourceRoot: string): boolean {
     if (pathParts.length < 2) return false;
     const packageName = pathParts[0]!;
@@ -385,14 +356,12 @@ export class CodeGenerator {
 
   // ── Top-level declarations ─────────────────────────────────────────────────
 
-  /** Emit a @deprecated JSDoc block if the declaration has @Nuked. */
   private emitAnnotations(mods: AST.Modifiers): void {
     for (const ann of mods.annotations) {
       if (ann.name === "Nuked") {
         const reason = ann.args ? ` ${ann.args.replace(/^["']|["']$/g, "")}` : "";
         this.w.writeIndentedLine(`/** @deprecated${reason} */`);
       }
-      // Other annotations are silently ignored for now (pass-through model)
     }
   }
 
@@ -427,7 +396,6 @@ export class CodeGenerator {
       : "";
 
     if (!decl.body) {
-      // Abstract / interface method
       this.w.writeIndentedLine(`${vis}${asyncKw}${decl.name}${typeParams}(${params})${retType};`);
       return;
     }
@@ -443,7 +411,6 @@ export class CodeGenerator {
       this.w.popIndent();
       this.w.writeIndentedLine(`}`);
     } else {
-      // Expression body
       if (memberOf) {
         this.w.writeIndentedLine(`${vis}${asyncKw}${decl.name}${typeParams}(${params})${retType} {`);
       } else {
@@ -486,7 +453,7 @@ export class CodeGenerator {
     }
   }
 
-  // ── component declarations → React function components ────────────────────
+  // ── component declarations → Functional components ────────────────────
 
   private emitComponentDecl(decl: AST.ComponentDecl): void {
     this.emitAnnotations(decl.modifiers);
@@ -494,98 +461,52 @@ export class CodeGenerator {
     const vis = this.isInClass ? this.visibilityPrefix(decl.modifiers) : this.exportPrefix(decl.modifiers);
 
     const hasChildren = decl.params.some((p) => p.name === "children");
+    const propsParams = decl.params.filter((p) => p.name !== "children");
 
-    if (this.isJsxMode) {
-      // React.createElement format: children are part of props destructuring
-      // Props interface
-      if (!this.isInClass && decl.params.length > 0) {
-        this.w.writeIndentedLine(`interface ${decl.name}Props {`);
-        this.w.pushIndent();
-        for (const p of decl.params) {
-          const optional = p.defaultValue || p.name === "children" ? "?" : "";
-          const typeStr = this.opts.emitTypes ? this.emitTypeRef(p.type) : "any";
-          this.w.writeIndentedLine(`readonly ${p.name}${optional}: ${typeStr};`);
-        }
-        this.w.popIndent();
-        this.w.writeIndentedLine(`}`);
-        this.w.writeLine();
+    // Props interface
+    if (!this.isInClass && propsParams.length > 0) {
+      this.w.writeIndentedLine(`interface ${decl.name}Props {`);
+      this.w.pushIndent();
+      for (const p of propsParams) {
+        const optional = p.defaultValue ? "?" : "";
+        const typeStr = this.opts.emitTypes ? this.emitTypeRef(p.type) : "any";
+        this.w.writeIndentedLine(`readonly ${p.name}${optional}: ${typeStr};`);
       }
-      
-      const propsType = this.isInClass 
-        ? `{ ${decl.params.map(p => {
-            const optional = p.defaultValue || p.name === "children" ? "?" : "";
-            const typeStr = this.opts.emitTypes ? this.emitTypeRef(p.type) : "any";
-            return `readonly ${p.name}${optional}: ${typeStr}`;
-          }).join("; ")} }`
-        : `${decl.name}Props`;
+      this.w.popIndent();
+      this.w.writeIndentedLine(`}`);
+      this.w.writeLine();
+    }
 
-      const propsDestructure = decl.params.length > 0
-        ? `{ ${decl.params.map((p) => p.name + (p.defaultValue ? ` = ${this.emitExpr(p.defaultValue)}` : "")).join(", ")} }: ${propsType}`
-        : "";
-      
-      const sig = this.isInClass 
-        ? `${decl.name}(${propsDestructure})`
-        : `function ${decl.name}(${propsDestructure})`;
-
-      this.w.writeIndentedLine(`${vis}${sig} {`);
-    } else {
-      // Direct function call format: children are separate positional parameter
-      const propsParams = decl.params.filter((p) => p.name !== "children");
-
-      // Props interface
-      if (!this.isInClass && propsParams.length > 0) {
-        this.w.writeIndentedLine(`interface ${decl.name}Props {`);
-        this.w.pushIndent();
-        for (const p of propsParams) {
+    const propsType = this.isInClass 
+      ? `{ ${propsParams.map(p => {
           const optional = p.defaultValue ? "?" : "";
           const typeStr = this.opts.emitTypes ? this.emitTypeRef(p.type) : "any";
-          this.w.writeIndentedLine(`readonly ${p.name}${optional}: ${typeStr};`);
-        }
-        this.w.popIndent();
-        this.w.writeIndentedLine(`}`);
-        this.w.writeLine();
-      }
+          return `readonly ${p.name}${optional}: ${typeStr}`;
+        }).join("; ")} }`
+      : `${decl.name}Props`;
 
-      const propsType = this.isInClass 
-        ? `{ ${propsParams.map(p => {
-            const optional = p.defaultValue ? "?" : "";
-            const typeStr = this.opts.emitTypes ? this.emitTypeRef(p.type) : "any";
-            return `readonly ${p.name}${optional}: ${typeStr}`;
-          }).join("; ")} }`
-        : `${decl.name}Props`;
-
-      // Build the function signature
-      let signature = "";
-      if (propsParams.length > 0) {
-        signature = `{ ${propsParams.map((p) => p.name + (p.defaultValue ? ` = ${this.emitExpr(p.defaultValue)}` : "")).join(", ")} }: ${propsType}`;
-      } else if (hasChildren) {
-        // Children-only component needs {} as first param to absorb the empty props object from call site
-        signature = "{}";
-      }
-      
-      if (hasChildren) {
-        signature += signature ? ", children?: any" : "children?: any";
-      }
-      
-      const sig = this.isInClass 
-        ? `${decl.name}(${signature})`
-        : `function ${decl.name}(${signature})`;
-
-      this.w.writeIndentedLine(`${vis}${sig} {`);
+    let signature = "";
+    if (propsParams.length > 0) {
+      signature = `{ ${propsParams.map((p) => p.name + (p.defaultValue ? ` = ${this.emitExpr(p.defaultValue)}` : "")).join(", ")} }: ${propsType}`;
+    } else if (hasChildren) {
+      signature = "{}";
     }
     
+    if (hasChildren) {
+      signature += signature ? ", children?: any" : "children?: any";
+    }
+    
+    const sig = this.isInClass 
+      ? `${decl.name}(${signature})`
+      : `function ${decl.name}(${signature})`;
+
+    this.w.writeIndentedLine(`${vis}${sig} {`);
     this.w.pushIndent();
     this.emitComponentBlock(decl.body);
     this.w.popIndent();
     this.w.writeIndentedLine(`}`);
   }
 
-  /**
-   * Emit the body of a `component fun` block.
-   * The last statement is emitted in tail position — if it is an expression,
-   * an if/else chain, or a when block, the innermost UI call is implicitly
-   * returned (implicit return of the last expression).
-   */
   private emitComponentBlock(block: AST.Block): void {
     const stmts = block.statements;
     for (let i = 0; i < stmts.length; i++) {
@@ -598,10 +519,8 @@ export class CodeGenerator {
     }
   }
 
-  /** Emit a statement in tail position, adding implicit return where applicable. */
   private emitTailStmt(stmt: AST.Stmt): void {
     if (stmt.kind === "ExprStmt") {
-      // Implicit return: last expression in a component block
       this.w.writeIndentedLine(`return ${this.emitExpr(stmt.expr)};`);
     } else if (stmt.kind === "IfStmt") {
       this.emitIfStmtWithTailReturn(stmt);
@@ -612,7 +531,6 @@ export class CodeGenerator {
     }
   }
 
-  /** Emit a block in tail position, treating its last statement as a tail expression. */
   private emitTailBlock(block: AST.Block): void {
     const stmts = block.statements;
     for (let i = 0; i < stmts.length; i++) {
@@ -625,7 +543,6 @@ export class CodeGenerator {
     }
   }
 
-  /** Like emitIfStmt but with tail-return applied recursively to each branch body. */
   private emitIfStmtWithTailReturn(stmt: AST.IfStmt): void {
     this.w.writeIndentedLine(`if (${this.emitExpr(stmt.condition)}) {`);
     this.w.pushIndent();
@@ -647,7 +564,6 @@ export class CodeGenerator {
     }
   }
 
-  /** Like emitWhenStmt but with tail-return applied recursively to each branch body. */
   private emitWhenStmtWithTailReturn(stmt: AST.WhenStmt): void {
     const subjectVar = stmt.subject ? "__when_subject__" : null;
     if (stmt.subject) {
@@ -686,15 +602,12 @@ export class CodeGenerator {
     this.w.writeIndentedLine(`${vis}${abstract}class ${decl.name}${typeParams}${superTypes} {`);
     this.w.pushIndent();
 
-    // The first supertype's delegateArgs become the `super(args)` call inside the constructor.
     const superDelegateArgs = decl.superTypes[0]?.delegateArgs ?? null;
 
     if (decl.primaryConstructor) {
       const initBlocks = decl.body?.members.filter((m): m is AST.InitBlock => m.kind === "InitBlock") ?? [];
       this.emitPrimaryConstructorProps(decl.primaryConstructor.params, initBlocks, superDelegateArgs);
     } else if (superDelegateArgs !== null) {
-      // No primary constructor but the supertype has explicit delegation args —
-      // emit a minimal constructor that forwards them to super().
       const superArgsStr = superDelegateArgs.map((a) => this.emitExpr(a.value)).join(", ");
       this.w.writeIndentedLine(`constructor() {`);
       this.w.pushIndent();
@@ -723,26 +636,22 @@ export class CodeGenerator {
     this.w.writeIndentedLine(`${vis}class ${decl.name}${typeParams}${superTypes} {`);
     this.w.pushIndent();
 
-    // Discriminant for sealed class sub-types
     if (kindName) {
       this.w.writeIndentedLine(`readonly __kind = "${kindName}" as const;`);
     }
 
-    // Constructor params → readonly properties
     for (const p of props) {
       const t = this.opts.emitTypes ? `: ${this.emitTypeRef(p.type)}` : "";
       this.w.writeIndentedLine(`readonly ${p.name}${t};`);
     }
     this.w.writeLine();
 
-    // Constructor
     const ctorParams = props.map((p) => {
       const t = this.opts.emitTypes ? `: ${this.emitTypeRef(p.type)}` : "";
       return `${p.name}${t}`;
     }).join(", ");
     this.w.writeIndentedLine(`constructor(${ctorParams}) {`);
     this.w.pushIndent();
-    // Emit super() with actual delegation args (or empty call if delegateArgs is []).
     const dataSuperDelegateArgs = decl.superTypes[0]?.delegateArgs ?? null;
     if (dataSuperDelegateArgs !== null) {
       const superArgsStr = dataSuperDelegateArgs.map((a) => this.emitExpr(a.value)).join(", ");
@@ -755,7 +664,6 @@ export class CodeGenerator {
     this.w.writeIndentedLine(`}`);
     this.w.writeLine();
 
-    // copy()
     const copyParams = props.map((p) => {
       const t = this.opts.emitTypes ? `: ${this.emitTypeRef(p.type)}` : "";
       return `${p.name}${t} = this.${p.name}`;
@@ -768,7 +676,6 @@ export class CodeGenerator {
     this.w.writeIndentedLine(`}`);
     this.w.writeLine();
 
-    // equals()
     this.runtimeSymbolsNeeded.add("jalvinEquals");
     const eqChecks = props.map((p) => `jalvinEquals(this.${p.name}, other.${p.name})`).join(" && ") || "true";
     this.w.writeIndentedLine(`equals(other: unknown): boolean {`);
@@ -779,7 +686,6 @@ export class CodeGenerator {
     this.w.writeIndentedLine(`}`);
     this.w.writeLine();
 
-    // toString()
     const toStringParts = props.map((p) => `${p.name}=\${this.${p.name}}`).join(", ");
     this.w.writeIndentedLine(`toString(): string {`);
     this.w.pushIndent();
@@ -788,7 +694,6 @@ export class CodeGenerator {
     this.w.writeIndentedLine(`}`);
     this.w.writeLine();
 
-    // hashCode() — djb2
     this.w.writeIndentedLine(`hashCode(): number {`);
     this.w.pushIndent();
     this.w.writeIndentedLine(`let h = 17;`);
@@ -815,7 +720,6 @@ export class CodeGenerator {
     const vis = this.exportPrefix(decl.modifiers);
     const typeParams = this.emitTypeParamsStr(decl.typeParams);
 
-    // Separate sub-type declarations from regular members
     type SubDecl = AST.ClassDecl | AST.DataClassDecl | AST.ObjectDecl;
     const subDecls: SubDecl[] = [];
     const otherMembers: AST.ClassMember[] = [];
@@ -833,7 +737,6 @@ export class CodeGenerator {
       }
     }
 
-    // Emit the abstract base class (only non-subtype members in the body)
     this.w.writeIndentedLine(`${vis}abstract class ${decl.name}${typeParams} {`);
     this.w.pushIndent();
     this.w.writeIndentedLine(`abstract readonly __kind: string;`);
@@ -847,7 +750,6 @@ export class CodeGenerator {
 
     if (subDecls.length === 0) return;
 
-    // Emit non-object sub-declarations at module level (before namespace)
     for (const sub of subDecls) {
       if (sub.kind === "DataClassDecl") {
         this.emitDataClassDecl(sub, sub.name);
@@ -858,12 +760,10 @@ export class CodeGenerator {
       }
     }
 
-    // Emit namespace merging so SealedClass.SubType is accessible
     this.w.writeIndentedLine(`${vis}namespace ${decl.name} {`);
     this.w.pushIndent();
     for (const sub of subDecls) {
       if (sub.kind === "ObjectDecl") {
-        // Singleton object — emit inline in namespace with __kind discriminant
         const superStr = sub.superTypes.length > 0
           ? this.emitSuperTypesStr(sub.superTypes)
           : ` extends ${decl.name}`;
@@ -877,7 +777,6 @@ export class CodeGenerator {
         const membersStr = membersArr.join(" ");
         this.w.writeIndentedLine(`export const ${sub.name} = new (class${superStr} { ${membersStr} })();`);
       } else {
-        // DataClassDecl / ClassDecl — already emitted at module level, re-export
         this.w.writeIndentedLine(`export { ${sub.name} };`);
       }
     }
@@ -891,13 +790,9 @@ export class CodeGenerator {
     const vis = this.exportPrefix(decl.modifiers);
     const typeParams = this.emitTypeParamsStr(decl.typeParams);
 
-    // Emit the enum as a TypeScript class with static singleton instances.
-    // This preserves the `EnumClass.ENTRY` access pattern and allows
-    // methods/properties to be attached to entries.
     this.w.writeIndentedLine(`${vis}class ${decl.name}${typeParams} {`);
     this.w.pushIndent();
 
-    // Private constructor so entries are the only instances
     if (decl.primaryConstructor && decl.primaryConstructor.params.length > 0) {
       const ctorParams = decl.primaryConstructor.params
         .map((p) => {
@@ -912,7 +807,6 @@ export class CodeGenerator {
     }
     this.w.writeLine();
 
-    // Static entry instances
     for (let i = 0; i < decl.entries.length; i++) {
       const entry = decl.entries[i]!;
       const args = entry.args.length > 0
@@ -923,7 +817,6 @@ export class CodeGenerator {
 
     if (decl.entries.length > 0) {
       this.w.writeLine();
-      // values() helper
       const entryList = decl.entries.map((e) => `${decl.name}.${e.name}`).join(", ");
       this.w.writeIndentedLine(`static values(): ${decl.name}[] { return [${entryList}]; }`);
       this.w.writeIndentedLine(`static valueOf(name: string): ${decl.name} {`);
@@ -944,16 +837,12 @@ export class CodeGenerator {
     this.w.writeIndentedLine(`}`);
   }
 
-  // ── destructuring declaration — val (a, b) = expr ─────────────────────────
-
   private emitDestructuringDecl(decl: AST.DestructuringDecl, _memberOf: boolean): void {
     const kw = decl.mutable ? "let" : "const";
     const names = decl.names.map((n) => n ?? "_").join(", ");
     const init = this.emitExpr(decl.initializer);
     this.w.writeIndentedLine(`${kw} [${names}] = ${init};`);
   }
-
-  // ── interface ──────────────────────────────────────────────────────────────
 
   private emitInterfaceDecl(decl: AST.InterfaceDecl): void {
     this.emitAnnotations(decl.modifiers);
@@ -974,13 +863,8 @@ export class CodeGenerator {
     this.w.writeIndentedLine(`}`);
   }
 
-  // ── object declaration → singleton ────────────────────────────────────────
-
   private emitObjectDecl(decl: AST.ObjectDecl): void {
-    if (!decl.name) {
-      // Anonymous object — emitted inline
-      return;
-    }
+    if (!decl.name) return;
     this.emitAnnotations(decl.modifiers);
     const vis = this.exportPrefix(decl.modifiers);
     const superTypes = this.emitSuperTypesStr(decl.superTypes);
@@ -992,18 +876,11 @@ export class CodeGenerator {
     this.w.writeIndentedLine(`})();`);
   }
 
-  // ── type alias ─────────────────────────────────────────────────────────────
-
   private emitTypeAliasDecl(decl: AST.TypeAliasDecl): void {
     const vis = this.exportPrefix(decl.modifiers);
     const typeParams = this.emitTypeParamsStr(decl.typeParams);
     this.w.writeIndentedLine(`${vis}type ${decl.name}${typeParams} = ${this.emitTypeRef(decl.type)};`);
   }
-
-  // ── extension functions ────────────────────────────────────────────────────
-  // Emitted as standalone free functions with receiver as explicit first param.
-  // For class types, also patched onto the prototype for dot-call syntax.
-  // For primitive types, call sites are rewritten via `primitiveExtensions`.
 
   private emitExtensionFunDecl(decl: AST.ExtensionFunDecl): void {
     const isSuspend = AST.isSuspend(decl.modifiers);
@@ -1016,9 +893,6 @@ export class CodeGenerator {
       : "";
     const fnName = `__ext_${receiverType.replace(/[^a-zA-Z0-9_]/g, "_")}_${decl.name}`;
 
-    // Emit as a free function: receiver is the first explicit parameter `$receiver`.
-    // Inside the function body, `this` is rebound to `$receiver` so Jalvin's
-    // `this.prop` references work correctly.
     this.w.writeIndentedLine(`${asyncKw}function ${fnName}${typeParams}($receiver: ${receiverType}${params ? ", " + params : ""})${retType} {`);
     this.w.pushIndent();
     if (decl.body.kind === "Block") {
@@ -1037,13 +911,11 @@ export class CodeGenerator {
     const simpleReceiverName = this.receiverClassName(decl.receiver);
     if (simpleReceiverName) {
       if (PRIMITIVE_TYPES.has(simpleReceiverName)) {
-        // Register for call-site rewriting — cannot patch primitive prototypes
         if (!this.primitiveExtensions.has(simpleReceiverName)) {
           this.primitiveExtensions.set(simpleReceiverName, new Map());
         }
         this.primitiveExtensions.get(simpleReceiverName)!.set(decl.name, fnName);
       } else {
-        // Class types — prototype monkey-patch for dot-call syntax
         this.w.writeIndentedLine(`// Extension: ${receiverType}.${decl.name}`);
         this.w.writeIndentedLine(`(${simpleReceiverName}.prototype as any).${decl.name} = function(this: ${receiverType}, ...args: unknown[]) { return (${fnName} as Function)(this, ...args); };`);
       }
@@ -1056,11 +928,6 @@ export class CodeGenerator {
     return null;
   }
 
-  /**
-   * Maps a JType to the primitive receiver type name used as a key
-   * in `primitiveExtensions` (e.g. JType `{ tag: "string" }` → `"String"`).
-   * Returns null for non-primitive / unknown types.
-   */
   private jTypeToReceiverName(type: JType): string | null {
     const tagToReceiverName: Partial<Record<JType["tag"], string>> = {
       string:   "String",
@@ -1084,21 +951,17 @@ export class CodeGenerator {
     );
   }
 
-  // ── property declaration ───────────────────────────────────────────────────
-
   private emitPropertyDecl(decl: AST.PropertyDecl, member: boolean, isLocal = false): void {
     this.emitAnnotations(decl.modifiers);
     const vis = member ? this.visibilityPrefix(decl.modifiers) : isLocal ? "" : this.exportPrefix(decl.modifiers);
     const isConst = decl.modifiers.modifiers.includes("const");
     const isLateinit = decl.modifiers.modifiers.includes("lateinit");
-    // `const val` → `const` at module level; inside classes treated as `static readonly`
     const kw = member
       ? (decl.mutable ? "" : "readonly ")
       : (isConst ? "const " : decl.mutable ? "let " : "const ");
     const type = decl.type && this.opts.emitTypes ? `: ${this.emitTypeRef(decl.type)}` : "";
 
     if (decl.delegate) {
-      // Delegated property — wrap in a getter/setter pair using the delegate
       this.runtimeSymbolsNeeded.add("delegate");
       const delegateExpr = this.emitExpr(decl.delegate);
       if (member) {
@@ -1107,30 +970,22 @@ export class CodeGenerator {
           this.w.writeIndentedLine(`${vis}set ${decl.name}(v: any) { delegate(${delegateExpr}, "${decl.name}", this).setValue(v); }`);
         }
       } else {
-        // Non-member delegate: resolve via delegate().getValue() so the identifier
-        // holds the delegated value, not the raw delegate wrapper object.
         this.w.writeIndentedLine(`${kw}${decl.name}${type} = delegate(${delegateExpr}, "${decl.name}", null).getValue();`);
       }
       return;
     }
 
-    const init = decl.initializer ? ` = ${this.emitExpr(decl.initializer)}` : (isLateinit ? "" : "");
+    const init = decl.initializer ? ` = ${this.emitExpr(decl.initializer)}` : "";
 
     if (member && !decl.getter) {
-      // Skip backing field when a getter is defined — TypeScript forbids both
-      // `readonly name: T` and `get name()` with the same name in a class.
       const modStr = isConst ? "static readonly " : decl.mutable ? "" : "readonly ";
       this.w.writeIndentedLine(`${vis}${modStr}${decl.name}${type}${init};`);
     } else if (!member) {
       this.w.writeIndentedLine(`${vis}${kw}${decl.name}${type}${init};`);
     }
 
-    if (decl.getter) {
-      this.emitPropertyAccessor("get", decl.name, decl.getter, member, type);
-    }
-    if (decl.setter) {
-      this.emitPropertyAccessor("set", decl.name, decl.setter, member, type);
-    }
+    if (decl.getter) this.emitPropertyAccessor("get", decl.name, decl.getter, member, type);
+    if (decl.setter) this.emitPropertyAccessor("set", decl.name, decl.setter, member, type);
   }
 
   private emitPropertyAccessor(
@@ -1155,14 +1010,11 @@ export class CodeGenerator {
     this.w.writeIndentedLine(`}`);
   }
 
-  // ── class body ─────────────────────────────────────────────────────────────
-
   private emitClassBody(body: AST.ClassBody): void {
     const old = this.isInClass;
     this.isInClass = true;
     try {
       for (const member of body.members) {
-        // InitBlocks are emitted inside the constructor by emitPrimaryConstructorProps
         if (member.kind === "InitBlock") continue;
         this.emitClassMember(member);
         this.w.writeLine();
@@ -1183,7 +1035,6 @@ export class CodeGenerator {
       case "EnumClassDecl":     this.emitEnumClassDecl(member); break;
       case "ObjectDecl":        this.emitObjectDecl(member); break;
       case "CompanionObject":   this.emitCompanionObject(member); break;
-      case "InitBlock":         /* handled in constructor */ break;
       case "SecondaryConstructor": this.emitSecondaryConstructor(member); break;
       case "ExtensionFunDecl":  this.emitExtensionFunDecl(member); break;
     }
@@ -1201,16 +1052,13 @@ export class CodeGenerator {
         this.w.writeIndentedLine(`${ro}${p.name}${type};`);
       }
     }
-    // Constructor
     const ctorParams = params.map((p) => {
-      const ro = p.propertyKind === "val" ? "readonly " : p.propertyKind === "var" ? "" : "";
       const type = this.opts.emitTypes ? `: ${this.emitTypeRef(p.type)}` : "";
       const def = p.defaultValue ? ` = ${this.emitExpr(p.defaultValue)}` : "";
       return `${p.name}${type}${def}`;
     });
     this.w.writeIndentedLine(`constructor(${ctorParams.join(", ")}) {`);
     this.w.pushIndent();
-    // super() call must be the first statement if there is a supertype.
     if (superDelegateArgs !== null && superDelegateArgs !== undefined) {
       const superArgsStr = superDelegateArgs.map((a) => this.emitExpr(a.value)).join(", ");
       this.w.writeIndentedLine(`super(${superArgsStr});`);
@@ -1220,18 +1068,13 @@ export class CodeGenerator {
         this.w.writeIndentedLine(`this.${p.name} = ${p.name};`);
       }
     }
-    // Emit init{} blocks inside the constructor, in declaration order
-    for (const ib of (initBlocks ?? [])) {
-      this.emitBlock(ib.body);
-    }
+    for (const ib of (initBlocks ?? [])) this.emitBlock(ib.body);
     this.w.popIndent();
     this.w.writeIndentedLine(`}`);
     this.w.writeLine();
   }
 
   private emitCompanionObject(co: AST.CompanionObject): void {
-    // Emit companion object members as `static` members of the outer class so that
-    // `MyClass.factoryMethod()` works directly (standard semantics).
     for (const member of co.body.members) {
       if (member.kind === "FunDecl") {
         const vis = this.visibilityPrefix(member.modifiers);
@@ -1275,12 +1118,8 @@ export class CodeGenerator {
     this.w.writeIndentedLine(`}`);
   }
 
-  // ── Statements ─────────────────────────────────────────────────────────────
-
   private emitBlock(block: AST.Block): void {
-    for (const stmt of block.statements) {
-      this.emitStmt(stmt);
-    }
+    for (const stmt of block.statements) this.emitStmt(stmt);
   }
 
   private emitStmt(stmt: AST.Stmt): void {
@@ -1370,15 +1209,11 @@ export class CodeGenerator {
   }
 
   private emitWhenStmt(stmt: AST.WhenStmt): void {
-    // when(subject) { is Foo -> ... else -> ... }
-    // Compiles to a series of if/else-if chains
     const subjectVar = stmt.subject ? "__when_subject__" : null;
-
     if (stmt.subject) {
       const binding = stmt.subject.binding ?? subjectVar!;
       this.w.writeIndentedLine(`const ${binding} = ${this.emitExpr(stmt.subject.expr)};`);
     }
-
     let first = true;
     for (const branch of stmt.branches) {
       if (branch.isElse) {
@@ -1389,11 +1224,8 @@ export class CodeGenerator {
       }
       first = false;
       this.w.pushIndent();
-      if (branch.body.kind === "Block") {
-        this.emitBlock(branch.body);
-      } else {
-        this.w.writeIndentedLine(`${this.emitExpr(branch.body)};`);
-      }
+      if (branch.body.kind === "Block") this.emitBlock(branch.body);
+      else this.w.writeIndentedLine(`${this.emitExpr(branch.body)};`);
       this.w.popIndent();
     }
     this.w.writeIndentedLine(`}`);
@@ -1402,8 +1234,6 @@ export class CodeGenerator {
   private emitWhenCondition(cond: AST.WhenCondition, subject: string): string {
     switch (cond.kind) {
       case "WhenIsCondition": {
-        // Qualified name (e.g. UiState.Loading) → use __kind discriminant
-        // Single name (e.g. BibiError) → use instanceof
         const isQualified = cond.type.kind === "SimpleTypeRef" && cond.type.name.length > 1;
         const check = isQualified
           ? `(${subject} as any).__kind === "${cond.type.kind === "SimpleTypeRef" ? cond.type.name[cond.type.name.length - 1] : ""}"`
@@ -1432,7 +1262,6 @@ export class CodeGenerator {
       this.w.writeIndentedLine(`for (const [${names}] of ${iter}) {`);
     } else {
       const { key, value } = stmt.binding;
-      // Use .entries() for JS Map (Map<K,V>), Object.entries() for plain objects
       const iterableType = this.typeMap.get(stmt.iterable);
       const isMap = iterableType?.tag === "class" && iterableType.name === "Map";
       const entries = isMap ? `${iter}.entries()` : `Object.entries(${iter})`;
@@ -1452,9 +1281,6 @@ export class CodeGenerator {
     for (const c of stmt.catches) {
       this.w.writeIndentedLine(`} catch (${c.name}: unknown) {`);
       this.w.pushIndent();
-      // Narrow type — always emit the guard so catch clauses are type-safe
-      // regardless of the emitTypes option (which controls explicit type annotations,
-      // not runtime type checks).
       this.w.writeIndentedLine(`if (!(${c.name} instanceof ${this.emitTypeRef(c.type)})) throw ${c.name};`);
       this.emitBlock(c.body);
       this.w.popIndent();
@@ -1468,8 +1294,6 @@ export class CodeGenerator {
     this.w.writeIndentedLine(`}`);
   }
 
-  // ── Expressions ────────────────────────────────────────────────────────────
-
   emitExpr(expr: AST.Expr): string {
     switch (expr.kind) {
       case "IntLiteralExpr":    return String(expr.value);
@@ -1479,17 +1303,11 @@ export class CodeGenerator {
       case "BooleanLiteralExpr": return String(expr.value);
       case "NullLiteralExpr":   return "null";
       case "StringLiteralExpr":
-        return expr.raw
-          ? `\`${expr.value}\``
-          : JSON.stringify(expr.value);
+        return expr.raw ? `\`${expr.value}\`` : JSON.stringify(expr.value);
       case "StringTemplateExpr":
         return this.emitStringTemplate(expr);
       case "NameExpr":
-        // Ensure Int/Long companion objects are imported from the runtime
-        if (expr.name === "Int" || expr.name === "Long") {
-          this.runtimeSymbolsNeeded.add(expr.name);
-        }
-        // Unit singleton emits as undefined (void semantics)
+        if (expr.name === "Int" || expr.name === "Long") this.runtimeSymbolsNeeded.add(expr.name);
         if (expr.name === "Unit") return "undefined";
         return expr.name;
       case "ThisExpr":          return "this";
@@ -1504,36 +1322,21 @@ export class CodeGenerator {
         if (opMethod) {
           const l = this.emitExpr(expr.left);
           const r = this.emitExpr(expr.right);
-          // `compareTo` overloads: wrap result in a comparison against 0
-          if (opMethod === "compareTo") {
-            const cmpOp = expr.op as string;
-            return `(${l}.compareTo(${r}) ${cmpOp} 0)`;
-          }
-          // `contains` overloads: `element in collection` → `collection.contains(element)`
-          if (opMethod === "contains") {
-            return `${r}.contains(${l})`;
-          }
-          if (opMethod === "!contains") {
-            return `!${r}.contains(${l})`;
-          }
-          // Generic operator overload: emit as method call `left.method(right)`
+          if (opMethod === "compareTo") return `(${l}.compareTo(${r}) ${expr.op} 0)`;
+          if (opMethod === "contains") return `${r}.contains(${l})`;
+          if (opMethod === "!contains") return `!${r}.contains(${l})`;
           return `${l}.${opMethod}(${r})`;
         }
-        // `==` → structural equality, `!=` → negation
         if (expr.op === "==" || expr.op === "!=") {
           this.runtimeSymbolsNeeded.add("jalvinEquals");
           const eq = `jalvinEquals(${this.emitExpr(expr.left)}, ${this.emitExpr(expr.right)})`;
           return expr.op === "==" ? eq : `!${eq}`;
         }
-        // `in` / `!in` without a user-defined operator: use JS `in` / array includes
-        if (expr.op === "in") {
-          return `${this.emitExpr(expr.right)}.includes?.(${this.emitExpr(expr.left)}) ?? (${this.emitExpr(expr.left)} in ${this.emitExpr(expr.right)})`;
-        }
-        if (expr.op === "!in") {
-          return `!(${this.emitExpr(expr.right)}.includes?.(${this.emitExpr(expr.left)}) ?? (${this.emitExpr(expr.left)} in ${this.emitExpr(expr.right)}))`;
-        }
+        if (expr.op === "in") return `${this.emitExpr(expr.right)}.includes?.(${this.emitExpr(expr.left)}) ?? (${this.emitExpr(expr.left)} in ${this.emitExpr(expr.right)})`;
+        if (expr.op === "!in") return `!(${this.emitExpr(expr.right)}.includes?.(${this.emitExpr(expr.left)}) ?? (${this.emitExpr(expr.left)} in ${this.emitExpr(expr.right)}))`;
         return `(${this.emitExpr(expr.left)} ${this.binaryOpStr(expr.op)} ${this.emitExpr(expr.right)})`;
-      }      case "AssignExpr":
+      }
+      case "AssignExpr":
         return `${this.emitExpr(expr.target as AST.Expr)} = ${this.emitExpr(expr.value)}`;
       case "CompoundAssignExpr":
         return `${this.emitExpr(expr.target as AST.Expr)} ${expr.op} ${this.emitExpr(expr.value)}`;
@@ -1541,194 +1344,106 @@ export class CodeGenerator {
         return expr.prefix
           ? `${expr.op}${this.emitExpr(expr.target as AST.Expr)}`
           : `${this.emitExpr(expr.target as AST.Expr)}${expr.op}`;
-      case "MemberExpr":
-        return `${this.emitExpr(expr.target)}.${expr.member}`;
-      case "SafeMemberExpr":
-        return `${this.emitExpr(expr.target)}?.${expr.member}`;
-      case "IndexExpr":
-        return `${this.emitExpr(expr.target)}[${this.emitExpr(expr.index)}]`;
+      case "MemberExpr":        return `${this.emitExpr(expr.target)}.${expr.member}`;
+      case "SafeMemberExpr":    return `${this.emitExpr(expr.target)}?.${expr.member}`;
+      case "IndexExpr":         return `${this.emitExpr(expr.target)}[${this.emitExpr(expr.index)}]`;
       case "NotNullExpr":
-        // Runtime check
         this.runtimeSymbolsNeeded.add("notNull");
         return `notNull(${this.emitExpr(expr.expr)})`;
       case "SafeCallExpr": {
-        // x?.() — safe invocation of a nullable function value
         const callee = this.emitExpr(expr.callee);
-        const restArgs: string[] = [];
-        for (const a of expr.args) {
-          restArgs.push(a.spread ? `...${this.emitExpr(a.value)}` : this.emitExpr(a.value));
-        }
+        const restArgs = expr.args.map((a) => a.spread ? `...${this.emitExpr(a.value)}` : this.emitExpr(a.value));
         if (expr.trailingLambda) restArgs.push(this.emitLambdaExpr(expr.trailingLambda));
         return `${callee}?.(${restArgs.join(", ")})`;
       }
-      case "ElvisExpr": {
-        // left ?? right  (null coalescing)
-        return `(${this.emitExpr(expr.left)} ?? ${this.emitExpr(expr.right)})`;
-      }
-      case "CallExpr":
-        return this.emitCallExpr(expr);
-      case "LambdaExpr":
-        return this.emitLambdaExpr(expr);
-      case "IfExpr":
-        return this.emitIfExpr(expr);
-      case "WhenExpr":
-        return this.emitWhenExpr(expr);
-      case "TryCatchExpr":
-        return this.emitTryCatchExpr(expr);
-      case "TypeCheckExpr":
-        return `${expr.negated ? "!(" : ""}${this.emitExpr(expr.expr)} instanceof ${this.emitTypeRef(expr.type)}${expr.negated ? ")" : ""}`;
-      case "TypeCastExpr":
-        // Unsafe cast — emit as `(expr as Type)` which is stripped at runtime
-        return `(${this.emitExpr(expr.expr)} as unknown as ${this.emitTypeRef(expr.type)})`;
-      case "SafeCastExpr": {
+      case "ElvisExpr":         return `(${this.emitExpr(expr.left)} ?? ${this.emitExpr(expr.right)})`;
+      case "CallExpr":          return this.emitCallExpr(expr);
+      case "LambdaExpr":        return this.emitLambdaExpr(expr);
+      case "IfExpr":            return this.emitIfExpr(expr);
+      case "WhenExpr":          return this.emitWhenExpr(expr);
+      case "TryCatchExpr":      return this.emitTryCatchExpr(expr);
+      case "TypeCheckExpr":     return `${expr.negated ? "!(" : ""}${this.emitExpr(expr.expr)} instanceof ${this.emitTypeRef(expr.type)}${expr.negated ? ")" : ""}`;
+      case "TypeCastExpr":      return `(${this.emitExpr(expr.expr)} as unknown as ${this.emitTypeRef(expr.type)})`;
+      case "SafeCastExpr":
         this.runtimeSymbolsNeeded.add("safeCast");
         return `safeCast(${this.emitExpr(expr.expr)}, ${this.emitTypeRef(expr.type)})`;
-      }
-      case "RangeExpr": {
+      case "RangeExpr":
         this.runtimeSymbolsNeeded.add("range");
         return `range(${this.emitExpr(expr.from)}, ${this.emitExpr(expr.to)}, ${expr.inclusive})`;
-      }
       case "LaunchExpr": {
-        // fire-and-forget → void IIFE
         const stmts = this.captureBlock(expr.body);
         return `(async () => { ${stmts} })()`;
       }
       case "AsyncExpr": {
-        // returns Promise<T>
         const stmts = this.captureBlock(expr.body);
         return `(async () => { ${stmts} })()`;
       }
-      case "CollectionLiteralExpr":
-        return this.emitCollectionLiteral(expr);
-      case "ObjectExpr":
-        return this.emitObjectExpr(expr);
+      case "CollectionLiteralExpr": return this.emitCollectionLiteral(expr);
+      case "ObjectExpr":            return this.emitObjectExpr(expr);
       case "ReturnExpr": {
         const val = expr.value ? ` ${this.emitExpr(expr.value)}` : "";
         return `((() => { return${val}; })())`;
       }
-      case "BreakExpr":   return "undefined /* break */";
-      case "ContinueExpr": return "undefined /* continue */";
-      case "JsxElement":
-        return this.emitJsxElement(expr);
-      default:
-        return "undefined";
+      case "BreakExpr":             return "undefined /* break */";
+      case "ContinueExpr":          return "undefined /* continue */";
+      case "JsxElement":            return this.emitJsxElement(expr);
+      default:                      return "undefined";
     }
   }
 
-  // ── JSX ──────────────────────────────────────────────────────────────────
-
   private emitJsxElement(expr: AST.JsxElement): string {
+    this.runtimeSymbolsNeeded.add("jalvinCreateElement");
     const attrsStr = expr.attrs.length > 0
-      ? " " + expr.attrs.map((a) => this.emitJsxAttr(a)).join(" ")
-      : "";
-    if (expr.children.length === 0) {
-      return `<${expr.tag}${attrsStr} />`;
-    }
-    const children = expr.children.map((c) => this.emitJsxChild(c)).join("");
-    return `<${expr.tag}${attrsStr}>${children}</${expr.tag}>`;
+      ? "{ " + expr.attrs.map((a) => this.emitJsxAttr(a)).join(", ") + " }"
+      : "{}";
+    const childrenArr = expr.children.length > 0
+      ? "[" + expr.children.map((c) => this.emitJsxChild(c)).join(", ") + "]"
+      : "[]";
+    return `jalvinCreateElement(${JSON.stringify(expr.tag)}, ${attrsStr}, ${childrenArr})`;
   }
 
   private emitJsxAttr(attr: AST.JsxAttr): string {
-    // Map HTML attribute names to React prop names
-    const name = attr.name === "class" ? "className"
-      : attr.name === "for" ? "htmlFor"
-      : attr.name;
-    if (attr.value === null) return name;
-    if (typeof attr.value === "string") return `${name}="${attr.value}"`;
-    return `${name}={${this.emitExpr(attr.value as AST.Expr)}}`;
+    const name = attr.name === "class" ? "className" : attr.name === "for" ? "htmlFor" : attr.name;
+    const val = attr.value === null ? "true" : typeof attr.value === "string" ? JSON.stringify(attr.value) : this.emitExpr(attr.value as AST.Expr);
+    return `${name}: ${val}`;
   }
 
   private emitJsxChild(child: AST.JsxChild): string {
     switch (child.kind) {
       case "JsxElement":   return this.emitJsxElement(child);
-      case "JsxExprChild": return `{${this.emitExpr(child.expr)}}`;
-      case "JsxTextChild": return child.text;
+      case "JsxExprChild": return this.emitExpr(child.expr);
+      case "JsxTextChild": return `document.createTextNode(${JSON.stringify(child.text)})`;
     }
   }
 
   private emitStringTemplate(expr: AST.StringTemplateExpr): string {
-    const inner = expr.parts.map((p) => {
-      if (p.kind === "LiteralPart") {
-        return p.value.replace(/`/g, "\\`").replace(/\\/g, "\\\\");
-      }
-      return `\${${this.emitExpr(p.expr)}}`;
-    }).join("");
+    const inner = expr.parts.map((p) => p.kind === "LiteralPart" ? p.value.replace(/`/g, "\\`").replace(/\\/g, "\\\\") : `\${${this.emitExpr(p.expr)}}`).join("");
     return `\`${inner}\``;
   }
 
   private emitCallExpr(expr: AST.CallExpr): string {
-    // Rewrite infix numeric extension calls that JS numbers don't natively have:
-    //   `a.downTo(b)` → `downTo(a, b)`   `a.until(b)` → `range(a, b, false)`
-    //   `range.step(n)` → `step(range, n)`
-    if (
-      expr.callee.kind === "MemberExpr" &&
-      (expr.callee.member === "downTo" || expr.callee.member === "until" || expr.callee.member === "step")
-    ) {
+    if (expr.callee.kind === "MemberExpr" && (expr.callee.member === "downTo" || expr.callee.member === "until" || expr.callee.member === "step")) {
       const obj = this.emitExpr(expr.callee.target);
       const arg = expr.args.length > 0 ? this.emitExpr(expr.args[0]!.value) : "0";
-      if (expr.callee.member === "downTo") {
-        this.runtimeSymbolsNeeded.add("downTo");
-        return `downTo(${obj}, ${arg})`;
-      }
-      if (expr.callee.member === "until") {
-        this.runtimeSymbolsNeeded.add("range");
-        return `range(${obj}, ${arg}, false)`;
-      }
-      if (expr.callee.member === "step") {
-        this.runtimeSymbolsNeeded.add("step");
-        return `step(${obj}, ${arg})`;
-      }
+      if (expr.callee.member === "downTo") { this.runtimeSymbolsNeeded.add("downTo"); return `downTo(${obj}, ${arg})`; }
+      if (expr.callee.member === "until") { this.runtimeSymbolsNeeded.add("range"); return `range(${obj}, ${arg}, false)`; }
+      if (expr.callee.member === "step") { this.runtimeSymbolsNeeded.add("step"); return `step(${obj}, ${arg})`; }
     }
 
-    // Rewrite calls on primitive-receiver extension functions.
-    // `str.truncate(30)` where `String.truncate` is a user extension → `__ext_string_truncate(str, 30)`
     if (expr.callee.kind === "MemberExpr") {
       const scopeMember = expr.callee.member;
-
-      // Scope function call rewriting: `x.let { ... }` → `let_(x, ...)`
-      // `x.apply { ... }` → `apply(x, function(this:any) { ... })`
-      if (scopeMember === "let" || scopeMember === "also" || scopeMember === "apply" || scopeMember === "run" || scopeMember === "takeIf" || scopeMember === "takeUnless") {
-        const receiver = this.emitExpr(expr.callee.target);
-        const lambda = expr.trailingLambda ??
-          (expr.args.length === 1 && expr.args[0]!.value.kind === "LambdaExpr"
-            ? (expr.args[0]!.value as AST.LambdaExpr)
-            : null);
-
-        if (lambda) {
-          if (scopeMember === "let") {
-            this.runtimeSymbolsNeeded.add("let_");
-            return `let_(${receiver}, ${this.emitLambdaExpr(lambda)})`;
-          }
-          if (scopeMember === "also") {
-            this.runtimeSymbolsNeeded.add("also");
-            return `also(${receiver}, ${this.emitLambdaExpr(lambda)})`;
-          }
-          if (scopeMember === "apply") {
-            this.runtimeSymbolsNeeded.add("apply");
-            const body = this.captureBlockStatements(lambda.body);
-            return `apply(${receiver}, function(this: any) { ${body} })`;
-          }
-          if (scopeMember === "run") {
-            this.runtimeSymbolsNeeded.add("run_");
-            const body = this.captureBlockStatements(lambda.body);
-            return `run_(${receiver}, function(this: any) { ${body} })`;
-          }
-          if (scopeMember === "takeIf") {
-            this.runtimeSymbolsNeeded.add("takeIf");
-            return `takeIf(${receiver}, ${this.emitLambdaExpr(lambda)})`;
-          }
-          if (scopeMember === "takeUnless") {
-            this.runtimeSymbolsNeeded.add("takeUnless");
-            return `takeUnless(${receiver}, ${this.emitLambdaExpr(lambda)})`;
-          }
-        }
+      const receiver = this.emitExpr(expr.callee.target);
+      const lambda = expr.trailingLambda ?? (expr.args.length === 1 && expr.args[0]!.value.kind === "LambdaExpr" ? (expr.args[0]!.value as AST.LambdaExpr) : null);
+      if (lambda) {
+        if (scopeMember === "let") { this.runtimeSymbolsNeeded.add("let_"); return `let_(${receiver}, ${this.emitLambdaExpr(lambda)})`; }
+        if (scopeMember === "also") { this.runtimeSymbolsNeeded.add("also"); return `also(${receiver}, ${this.emitLambdaExpr(lambda)})`; }
+        if (scopeMember === "apply") { this.runtimeSymbolsNeeded.add("apply"); const body = this.captureBlockStatements(lambda.body); return `apply(${receiver}, function(this: any) { ${body} })`; }
+        if (scopeMember === "run") { this.runtimeSymbolsNeeded.add("run_"); const body = this.captureBlockStatements(lambda.body); return `run_(${receiver}, function(this: any) { ${body} })`; }
+        if (scopeMember === "takeIf") { this.runtimeSymbolsNeeded.add("takeIf"); return `takeIf(${receiver}, ${this.emitLambdaExpr(lambda)})`; }
+        if (scopeMember === "takeUnless") { this.runtimeSymbolsNeeded.add("takeUnless"); return `takeUnless(${receiver}, ${this.emitLambdaExpr(lambda)})`; }
       }
-
-      // `with(x) { ... }` is a free function handled via seedBuiltins; but rewrite if emitted as member
     }
 
-    // Rewrite calls on primitive-receiver extension functions.
-    // `str.truncate(30)` where `String.truncate` is a user extension → `__ext_string_truncate(str, 30)`
     if (expr.callee.kind === "MemberExpr") {
       const receiverType = this.typeMap.get(expr.callee.target);
       const memberName = expr.callee.member;
@@ -1739,9 +1454,7 @@ export class CodeGenerator {
           if (extMap?.has(memberName)) {
             const fnName = extMap.get(memberName)!;
             const receiver = this.emitExpr(expr.callee.target);
-            const restArgs = expr.args.map((a) =>
-              a.spread ? `...${this.emitExpr(a.value)}` : this.emitExpr(a.value)
-            );
+            const restArgs = expr.args.map((a) => a.spread ? `...${this.emitExpr(a.value)}` : this.emitExpr(a.value));
             if (expr.trailingLambda) restArgs.push(this.emitLambdaExpr(expr.trailingLambda));
             return `${fnName}(${[receiver, ...restArgs].join(", ")})`;
           }
@@ -1750,128 +1463,65 @@ export class CodeGenerator {
     }
 
     const callee = this.emitExpr(expr.callee);
-    const typeArgs = expr.typeArgs.length > 0
-      ? `<${expr.typeArgs.map((t) => t.star ? "*" : this.emitTypeRef(t.type!)).join(", ")}>`
-      : "";
+    const typeArgs = expr.typeArgs.length > 0 ? `<${expr.typeArgs.map((t) => t.star ? "*" : this.emitTypeRef(t.type!)).join(", ")}>` : "";
 
-    // Rewrite top-level `with(obj) { ... }` → `with_(obj, function(this: any) { ... })`
-    if (
-      expr.callee.kind === "NameExpr" && expr.callee.name === "with" &&
-      (expr.trailingLambda || (expr.args.length === 2 && expr.args[1]!.value.kind === "LambdaExpr"))
-    ) {
+    if (expr.callee.kind === "NameExpr" && expr.callee.name === "with" && (expr.trailingLambda || (expr.args.length === 2 && expr.args[1]!.value.kind === "LambdaExpr"))) {
       const obj = expr.args.length > 0 ? this.emitExpr(expr.args[0]!.value) : "undefined";
-      const lambda = expr.trailingLambda ??
-        (expr.args[1]!.value as AST.LambdaExpr);
+      const lambda = expr.trailingLambda ?? (expr.args[1]!.value as AST.LambdaExpr);
       this.runtimeSymbolsNeeded.add("with_");
       const body = this.captureBlockStatements(lambda.body);
       return `with_(${obj}, function(this: any) { ${body} })`;
     }
 
-    // Rewrite top-level `run { ... }` (no receiver) — just call the lambda
-    if (
-      expr.callee.kind === "NameExpr" && expr.callee.name === "run" &&
-      expr.args.length === 0 && expr.trailingLambda
-    ) {
+    if (expr.callee.kind === "NameExpr" && expr.callee.name === "run" && expr.args.length === 0 && expr.trailingLambda) {
       return `(${this.emitLambdaExpr(expr.trailingLambda)})()`;
     }
 
-    // Handle named arguments by reordering them to match positional parameters
     const calleeType = this.typeMap.get(expr.callee);
-
-    // Component call: Column(modifier = ...) { ... } → Column({ modifier: ... }, [children])
-    // Also catches star-imported @jalvin/ui primitives (Row, Button, etc.) whose type is T_UNKNOWN
-    //
-    // Skip the component path when the typechecker resolved a func type with explicit paramNames.
-    // That indicates a regular function (fun) or a built-in hook — both use positional calling.
-    // component fun declarations intentionally omit paramNames from their func type.
     const isKnownPositionalFunc = calleeType?.tag === "func" && calleeType.paramNames !== undefined;
     let isComponentLike = false;
     if (expr.callee.kind === "NameExpr") {
-      isComponentLike = this.allComponentLikeNames.has(expr.callee.name) ||
-        (this.hasUiStarImport && (!calleeType || calleeType.tag === "unknown") && /^[A-Z]/.test(expr.callee.name));
+      isComponentLike = this.allComponentLikeNames.has(expr.callee.name) || (this.hasUiStarImport && (!calleeType || calleeType.tag === "unknown") && /^[A-Z]/.test(expr.callee.name));
     } else if (expr.callee.kind === "MemberExpr" || expr.callee.kind === "SafeMemberExpr") {
-      const member = (expr.callee as any).member;
-      isComponentLike = this.allComponentLikeNames.has(member);
+      isComponentLike = this.allComponentLikeNames.has((expr.callee as any).member);
     }
 
-    if (!isKnownPositionalFunc && isComponentLike) {
-      return this.emitComponentCall(expr);
-    }
+    if (!isKnownPositionalFunc && isComponentLike) return this.emitComponentCall(expr);
 
     let finalArgs: string[] = [];
-
     if (calleeType && calleeType.tag === "func" && calleeType.paramNames) {
       const paramNames = calleeType.paramNames;
       const argsByName = new Map<string, string>();
       const positionalArgs: string[] = [];
-
       for (const arg of expr.args) {
-        if (arg.name) {
-          argsByName.set(arg.name, arg.spread ? `...${this.emitExpr(arg.value)}` : this.emitExpr(arg.value));
-        } else {
-          positionalArgs.push(arg.spread ? `...${this.emitExpr(arg.value)}` : this.emitExpr(arg.value));
-        }
+        if (arg.name) argsByName.set(arg.name, arg.spread ? `...${this.emitExpr(arg.value)}` : this.emitExpr(arg.value));
+        else positionalArgs.push(arg.spread ? `...${this.emitExpr(arg.value)}` : this.emitExpr(arg.value));
       }
-
-      // Reconstruct args based on paramNames
       for (let i = 0; i < paramNames.length; i++) {
         const name = paramNames[i]!;
-        if (argsByName.has(name)) {
-          finalArgs.push(argsByName.get(name)!);
-        } else if (i < positionalArgs.length) {
-          finalArgs.push(positionalArgs[i]!);
-        } else {
-          // Missing argument - JS default value logic will handle it if we pass undefined
-          finalArgs.push("undefined");
-        }
+        if (argsByName.has(name)) finalArgs.push(argsByName.get(name)!);
+        else if (i < positionalArgs.length) finalArgs.push(positionalArgs[i]!);
+        else finalArgs.push("undefined");
       }
-      // Handle trailing positional args if any
-      if (positionalArgs.length > paramNames.length) {
-        finalArgs.push(...positionalArgs.slice(paramNames.length));
-      }
+      if (positionalArgs.length > paramNames.length) finalArgs.push(...positionalArgs.slice(paramNames.length));
     } else {
-      // Fallback for types we don't know param names for (like constructors or any)
-      finalArgs = expr.args.map((a) => {
-        return a.spread ? `...${this.emitExpr(a.value)}` : this.emitExpr(a.value);
-      });
+      finalArgs = expr.args.map((a) => a.spread ? `...${this.emitExpr(a.value)}` : this.emitExpr(a.value));
     }
+    if (expr.trailingLambda) finalArgs.push(this.emitLambdaExpr(expr.trailingLambda));
 
-    if (expr.trailingLambda) {
-      finalArgs.push(this.emitLambdaExpr(expr.trailingLambda));
-    }
-
-    // If the callee is a class instance (not a constructor / function), emit `.invoke(args)`
-    if (
-      calleeType &&
-      calleeType.tag === "class" &&
-      calleeType.decl &&
-      this.classHasInvokeOperator(calleeType.decl)
-    ) {
+    if (calleeType && calleeType.tag === "class" && calleeType.decl && this.classHasInvokeOperator(calleeType.decl)) {
       return `${callee}.invoke(${finalArgs.join(", ")})`;
     }
 
-    // Constructor calls: class names start with uppercase by convention
-    if (this.isConstructorCall(expr.callee)) {
-      return `new ${callee}${typeArgs}(${finalArgs.join(", ")})`;
-    }
-
+    if (this.isConstructorCall(expr.callee)) return `new ${callee}${typeArgs}(${finalArgs.join(", ")})`;
     return `${callee}${typeArgs}(${finalArgs.join(", ")})`;
   }
 
-  /**
-   * For each non-scoped local import (e.g. `import src.views.MoveCounterView.MoveCounter`),
-   * attempt to load and parse the corresponding .jalvin source file. If the named symbol is
-   * a `component fun`, register it in `userComponentNames` and record its param names so that
-   * call sites can emit the correct props-object invocation.
-   */
   private resolveLocalComponentImports(program: AST.Program, sourceRoot: string): void {
     this.localStarExports.clear();
     for (const imp of program.imports) {
-      // Skip scoped packages (@org/pkg)
       if (imp.path[0]?.startsWith("@")) continue;
-
       if (imp.star) {
-        // Local wildcard import: import src.module.* — load all exports from src/module.jalvin
         if (imp.path.length < 1) continue;
         const candidatePath = nodePath.join(sourceRoot, imp.path.join("/") + ".jalvin");
         if (!fs.existsSync(candidatePath)) continue;
@@ -1882,7 +1532,6 @@ export class CodeGenerator {
           if (diag.hasErrors) continue;
           const ast = parse(tokens, candidatePath, diag, source);
           if (diag.hasErrors) continue;
-
           const moduleSpecifier = imp.path.join("/");
           const exportedNames: string[] = [];
           for (const d of ast.declarations) {
@@ -1905,25 +1554,16 @@ export class CodeGenerator {
               }
             }
           }
-          if (exportedNames.length > 0) {
-            this.localStarExports.set(moduleSpecifier, exportedNames);
-          }
-        } catch {
-          // Silently skip if the file cannot be read or parsed
-        }
+          if (exportedNames.length > 0) this.localStarExports.set(moduleSpecifier, exportedNames);
+        } catch { }
         continue;
       }
-
-      // Named import: last path segment is the symbol, preceding segments form the file path
       if (imp.path.length < 2) continue;
-
       const rawSymbolName = imp.path[imp.path.length - 1]!;
       const symbolName = imp.alias ?? rawSymbolName;
       const precedingParts = imp.path.slice(0, -1);
       const candidatePath = nodePath.join(sourceRoot, precedingParts.join("/") + ".jalvin");
-
       if (!fs.existsSync(candidatePath)) continue;
-
       try {
         const source = fs.readFileSync(candidatePath, "utf8");
         const diag = new DiagnosticBag();
@@ -1931,19 +1571,13 @@ export class CodeGenerator {
         if (diag.hasErrors) continue;
         const ast = parse(tokens, candidatePath, diag, source);
         if (diag.hasErrors) continue;
-
-        // Look for a top-level ComponentDecl OR ClassDecl matching the imported symbol name
-        const decl = ast.declarations.find(
-          (d): d is AST.ComponentDecl | AST.ClassDecl =>
-            ((d.kind === "ComponentDecl" || d.kind === "ClassDecl") && (d as any).name === rawSymbolName)
-        );
+        const decl = ast.declarations.find((d): d is AST.ComponentDecl | AST.ClassDecl => ((d.kind === "ComponentDecl" || d.kind === "ClassDecl") && (d as any).name === rawSymbolName));
         if (decl?.kind === "ComponentDecl") {
           this.userComponentNames.add(symbolName);
           this.allComponentLikeNames.add(symbolName);
           this.componentParamNames.set(symbolName, decl.params.map((p) => p.name));
           this.hasComponents = true;
         } else if (decl?.kind === "ClassDecl" && decl.body) {
-          // If a class was imported, register its member components
           for (const m of decl.body.members) {
             if (m.kind === "ComponentDecl") {
               this.userComponentNames.add(m.name);
@@ -1953,603 +1587,173 @@ export class CodeGenerator {
             }
           }
         }
-      } catch {
-        // Silently skip if the file cannot be read or parsed
-      }
+      } catch { }
     }
   }
 
-  /** Returns true if a call expression's callee looks like a class constructor.
-   *  In Jalvin, class names always start with an uppercase letter. */
   private isConstructorCall(calleeExpr: AST.Expr): boolean {
     if (calleeExpr.kind === "NameExpr") {
-      // Names in allComponentLikeNames are factory functions (UI primitives, components), not constructors
       if (this.allComponentLikeNames.has(calleeExpr.name)) return false;
-      // Class names start with uppercase; function names start with lowercase
       return /^[A-Z]/.test(calleeExpr.name);
     }
     if (calleeExpr.kind === "MemberExpr") {
-      // e.g. UiState.Success(data), Discount.Percentage(0.1)
       if (this.allComponentLikeNames.has(calleeExpr.member)) return false;
       return /^[A-Z]/.test(calleeExpr.member);
     }
     return false;
   }
 
-  /** Returns true if a name refers to a "true" Jalvin component that needs a React boundary */
-  private isTrueComponent(name: string): boolean {
-    // 1. Locally declared or imported .jalvin components
-    if (this.userComponentNames.has(name)) return true;
-    
-    // 2. Named imports from @jalvin/ui are considered UI primitives (functions) 
-    // unless they were also identified as components. 
-    // For now, everything in @jalvin/ui is treated as a UI primitive (function call)
-    // to maintain compatibility with the (props, children) signature.
-    if (this.uiNamedImports.has(name)) return false;
-
-    // 3. Fallback for star-imported @jalvin/ui
-    return false;
-  }
-
-  // ── Component call → props object ──────────────────────────────────────
-
-  /** Emit `Column(modifier = ...) { ... }` as either direct calls or React.createElement depending on jsx option */
   private emitComponentCall(expr: AST.CallExpr): string {
     const callee = this.emitExpr(expr.callee);
     const tagName = expr.callee.kind === "NameExpr" ? expr.callee.name : (expr.callee as any).member;
     const calleeType = this.typeMap.get(expr.callee);
-
-    // Param names from type checker (for same-file components) or resolved from imported files
-    const paramNames =
-      (calleeType?.tag === "func" ? calleeType.paramNames : undefined) ??
-      (tagName ? this.componentParamNames.get(tagName) : undefined);
-
-    // Build props object from named/positional args
+    const paramNames = (calleeType?.tag === "func" ? calleeType.paramNames : undefined) ?? (tagName ? this.componentParamNames.get(tagName) : undefined);
     const props: string[] = [];
     for (let i = 0; i < expr.args.length; i++) {
       const arg = expr.args[i]!;
-      // Prop name: explicit named arg > known param name > NameExpr variable name (shorthand)
-      const propName =
-        arg.name ??
-        paramNames?.[i] ??
-        (arg.value.kind === "NameExpr" ? arg.value.name : undefined);
+      const propName = arg.name ?? paramNames?.[i] ?? (arg.value.kind === "NameExpr" ? arg.value.name : undefined);
       if (!propName) continue;
       const val = this.emitExpr(arg.value);
-      // Use JS shorthand `{ key }` when key and value are the same identifier
       props.push(propName === val ? propName : `${propName}: ${val}`);
     }
-
     const propsStr = props.length > 0 ? `{ ${props.join(", ")} }` : "{}";
-
-    if (this.isJsxMode && tagName && this.isTrueComponent(tagName)) {
-      // React.createElement format for JSX output (True Components only)
-      if (expr.trailingLambda) {
-        const children = this.emitLambdaBodyAsDomChildren(expr.trailingLambda);
-        return `React.createElement(${callee}, ${propsStr}, [${children}])`;
-      }
-      return `React.createElement(${callee}, ${propsStr})`;
-    } else {
-      // Direct function call format for non-JSX output OR UI Primitives
-      if (expr.trailingLambda) {
-        const children = this.emitLambdaBodyAsDomChildren(expr.trailingLambda);
-        return `${callee}(${propsStr}, [${children}])`;
-      }
-      return `${callee}(${propsStr})`;
+    if (expr.trailingLambda) {
+      const children = this.emitLambdaBodyAsDomChildren(expr.trailingLambda);
+      return `${callee}(${propsStr}, [${children}])`;
     }
+    return `${callee}(${propsStr})`;
   }
 
-  /** Collect each expression statement in a trailing-lambda body as DOM children.
-   *  For-loop statements are emitted as spread IIFEs so their dynamic output is preserved. */
   private emitLambdaBodyAsDomChildren(lambda: AST.LambdaExpr): string {
     const parts: string[] = [];
     for (const stmt of lambda.body) {
       if (stmt.kind === "ExprStmt") {
         parts.push(this.emitExpr((stmt as AST.ExprStmt).expr));
+      } else if (stmt.kind === "IfStmt") {
+        const s = stmt as AST.IfStmt;
+        const cond = this.emitExpr(s.condition);
+        const thenExprs = s.then.statements.filter((st) => st.kind === "ExprStmt").map((st) => this.emitExpr((st as AST.ExprStmt).expr));
+        const elseExprs = s.else && s.else.kind === "Block" ? s.else.statements.filter((st) => st.kind === "ExprStmt").map((st) => this.emitExpr((st as AST.ExprStmt).expr)) : [];
+        
+        const thenStr = thenExprs.length > 0 ? `...(${cond} ? [${thenExprs.join(", ")}] : [])` : "";
+        const elseStr = elseExprs.length > 0 ? `...(!(${cond}) ? [${elseExprs.join(", ")}] : [])` : "";
+        if (thenStr) parts.push(thenStr);
+        if (elseStr) parts.push(elseStr);
       } else if (stmt.kind === "ForStmt") {
         const s = stmt as AST.ForStmt;
         const iter = this.emitExpr(s.iterable);
-        let bindingStr: string;
-        if (typeof s.binding === "string") {
-          bindingStr = `const ${s.binding}`;
-        } else if (s.binding.kind === "TupleDestructure") {
-          const names = s.binding.names.map((n) => n ?? "_").join(", ");
-          bindingStr = `const [${names}]`;
-        } else {
-          bindingStr = `const [${s.binding.key}, ${s.binding.value}]`;
-        }
-        const innerExprs = s.body.statements
-          .filter((inner) => inner.kind === "ExprStmt")
-          .map((inner) => this.emitExpr((inner as AST.ExprStmt).expr));
+        let bindingStr = typeof s.binding === "string" ? `const ${s.binding}` : s.binding.kind === "TupleDestructure" ? `const [${s.binding.names.map((n) => n ?? "_").join(", ")}]` : `const [${s.binding.key}, ${s.binding.value}]`;
+        const innerExprs = s.body.statements.filter((inner) => inner.kind === "ExprStmt").map((inner) => this.emitExpr((inner as AST.ExprStmt).expr));
         if (innerExprs.length > 0) {
           const pushes = innerExprs.map((e) => `__c.push(${e});`).join(" ");
           parts.push(`...(() => { const __c: any[] = []; for (${bindingStr} of ${iter}) { ${pushes} } return __c; })()`);
         }
       }
-      // Other statement kinds (if, while, etc.) are not renderable as UI children inline
     }
     return parts.join(", ");
   }
 
   private emitLambdaExpr(expr: AST.LambdaExpr): string {
-    // If no explicit params, emit `it` as the single implicit parameter
-    // (Convention for single-argument lambdas)
-    const params = expr.params.length === 0
-      ? "it"
-      : expr.params.map((p) => p.name ?? "_").join(", ");
-    const body = expr.body;
-    if (body.length === 1 && body[0]!.kind === "ExprStmt") {
-      return `(${params}) => ${this.emitExpr((body[0] as AST.ExprStmt).expr)}`;
-    }
-    return `(${params}) => { ${body.map((s) => this.captureStmt(s)).join(" ")} }`;
+    const params = expr.params.length === 0 ? "it" : expr.params.map((p) => p.name ?? "_").join(", ");
+    if (expr.body.length === 1 && expr.body[0]!.kind === "ExprStmt") return `(${params}) => ${this.emitExpr((expr.body[0] as AST.ExprStmt).expr)}`;
+    return `(${params}) => { ${expr.body.map((s) => this.captureStmt(s)).join(" ")} }`;
   }
 
   private emitIfExpr(expr: AST.IfExpr): string {
     const cond = this.emitExpr(expr.condition);
-    const thenStr = expr.then.kind === "Block"
-      ? `(() => { ${this.captureBlockStatements(expr.then.statements)} })()`
-      : this.emitExpr(expr.then);
-    const elseExpr = expr.else;
-    const elseStr = elseExpr.kind === "Block"
-      ? `(() => { ${this.captureBlockStatements(elseExpr.statements)} })()`
-      : elseExpr.kind === "IfExpr"
-        ? this.emitIfExpr(elseExpr)
-        : this.emitExpr(elseExpr);
+    const thenStr = expr.then.kind === "Block" ? `(() => { ${this.captureBlockStatements(expr.then.statements)} })()` : this.emitExpr(expr.then);
+    const elseStr = expr.else.kind === "Block" ? `(() => { ${this.captureBlockStatements(expr.else.statements)} })()` : expr.else.kind === "IfExpr" ? this.emitIfExpr(expr.else) : this.emitExpr(expr.else);
     return `(${cond} ? ${thenStr} : ${elseStr})`;
   }
 
   private emitWhenExpr(expr: AST.WhenExpr): string {
-    // Compile as an IIFE with if/else chain
     const parts: string[] = [];
     const subject = expr.subject ? `const __s = ${this.emitExpr(expr.subject.expr)};` : "";
     const subjectRef = expr.subject ? (expr.subject.binding ?? "__s") : "";
-
     for (const branch of expr.branches) {
-      if (branch.isElse) {
-        const body = branch.body.kind === "Block"
-          ? this.captureBlock(branch.body)
-          : `return ${this.emitExpr(branch.body)};`;
-        parts.push(`{ ${body} }`);
-      } else {
-        const cond = branch.conditions.map((c) => this.emitWhenCondition(c, subjectRef)).join(" || ");
-        const body = branch.body.kind === "Block"
-          ? this.captureBlock(branch.body)
-          : `return ${this.emitExpr(branch.body)};`;
-        parts.push(`if (${cond}) { ${body} }`);
-      }
+      const body = branch.body.kind === "Block" ? this.captureBlock(branch.body) : `return ${this.emitExpr(branch.body)};`;
+      if (branch.isElse) parts.push(`{ ${body} }`);
+      else parts.push(`if (${branch.conditions.map((c) => this.emitWhenCondition(c, subjectRef)).join(" || ")}) { ${body} }`);
     }
-
     return `(() => { ${subject} ${parts.join(" else ")} })()`;
   }
 
   private emitTryCatchExpr(expr: AST.TryCatchExpr): string {
     const body = this.captureBlock(expr.body);
-    const catches = expr.catches.map((c) => {
-      const cb = this.captureBlock(c.body);
-      return `catch (${c.name}) { ${cb} }`;
-    }).join(" ");
+    const catches = expr.catches.map((c) => `catch (${c.name}) { ${this.captureBlock(c.body)} }`).join(" ");
     const fin = expr.finally ? `finally { ${this.captureBlock(expr.finally)} }` : "";
     return `(() => { try { ${body} } ${catches} ${fin} })()`;
   }
 
   private emitCollectionLiteral(expr: AST.CollectionLiteralExpr): string {
-    if (expr.collectionKind === "map") {
-      const entries = expr.elements.map((e) => {
-        if ("kind" in e && e.kind === "MapEntry") {
-          return `[${this.emitExpr(e.key)}, ${this.emitExpr(e.value)}]`;
-        }
-        return "null";
-      });
-      return `new Map([${entries.join(", ")}])`;
-    }
-    if (expr.collectionKind === "set") {
-      const items = (expr.elements as AST.Expr[]).map((e) => this.emitExpr(e));
-      return `new Set([${items.join(", ")}])`;
-    }
-    const items = (expr.elements as AST.Expr[]).map((e) => this.emitExpr(e));
-    return `[${items.join(", ")}]`;
+    if (expr.collectionKind === "map") return `new Map([${expr.elements.map((e) => ("kind" in e && e.kind === "MapEntry") ? `[${this.emitExpr(e.key)}, ${this.emitExpr(e.value)}]` : "null").join(", ")}])`;
+    if (expr.collectionKind === "set") return `new Set([${(expr.elements as AST.Expr[]).map((e) => this.emitExpr(e)).join(", ")}])`;
+    return `[${(expr.elements as AST.Expr[]).map((e) => this.emitExpr(e)).join(", ")}]`;
   }
 
   private emitObjectExpr(expr: AST.ObjectExpr): string {
     const superType = expr.superTypes[0];
     const ext = superType ? ` extends ${this.emitTypeRef(superType.type)}` : "";
-    const members = expr.body.members.map((m) => this.captureClassMember(m)).join(" ");
-    return `(new (class${ext} { ${members} })())`;
+    return `(new (class${ext} { ${expr.body.members.map((m) => this.captureClassMember(m)).join(" ")} })())`;
   }
 
-  // ── capture helpers (emit to temp string) ─────────────────────────────────
-
-  private captureBlock(block: AST.Block): string {
-    return block.statements.map((s) => this.captureStmt(s)).join(" ");
-  }
-
-  private captureBlockStatements(stmts: readonly AST.Stmt[]): string {
-    return stmts.map((s) => this.captureStmt(s)).join(" ");
-  }
-
-  private captureStmt(stmt: AST.Stmt): string {
-    const saved = this.w;
-    const tmp = new Writer();
-    (this as unknown as { w: Writer }).w = tmp;
-    this.emitStmt(stmt);
-    (this as unknown as { w: Writer }).w = saved;
-    return tmp.output.trim();
-  }
-
-  private captureClassMember(member: AST.ClassMember): string {
-    const saved = this.w;
-    const tmp = new Writer();
-    (this as unknown as { w: Writer }).w = tmp;
-    this.emitClassMember(member);
-    (this as unknown as { w: Writer }).w = saved;
-    return tmp.output.trim();
-  }
-
-  // ── Type reference emission ────────────────────────────────────────────────
+  private captureBlock(block: AST.Block): string { return block.statements.map((s) => this.captureStmt(s)).join(" "); }
+  private captureBlockStatements(stmts: readonly AST.Stmt[]): string { return stmts.map((s) => this.captureStmt(s)).join(" "); }
+  private captureStmt(stmt: AST.Stmt): string { const saved = this.w; const tmp = new Writer(); (this as any).w = tmp; this.emitStmt(stmt); (this as any).w = saved; return tmp.output.trim(); }
+  private captureClassMember(member: AST.ClassMember): string { const saved = this.w; const tmp = new Writer(); (this as any).w = tmp; this.emitClassMember(member); (this as any).w = saved; return tmp.output.trim(); }
 
   private emitTypeRef(ref: AST.TypeRef): string {
     switch (ref.kind) {
-      case "SimpleTypeRef": {
-        const name = ref.name.join(".");
-        return PRIMITIVE_TYPE_MAP[name] ?? name;
-      }
-      case "NullableTypeRef":
-        return `${this.emitTypeRef(ref.base)} | null | undefined`;
-      case "GenericTypeRef": {
-        const base = ref.base.name.join(".");
-        const mapped = GENERIC_TYPE_MAP[base] ?? base;
-        const args = ref.args.map((a) => a.star ? "any" : a.type ? this.emitTypeRef(a.type) : "unknown");
-        return `${mapped}<${args.join(", ")}>`;
-      }
-      case "FunctionTypeRef": {
-        const params = ref.params.map((p, i) => `p${i}: ${this.emitTypeRef(p)}`).join(", ");
-        const ret = this.emitTypeRef(ref.returnType);
-        return `(${params}) => ${ret}`;
-      }
-      case "StarProjection":
-        return "any";
+      case "SimpleTypeRef": return PRIMITIVE_TYPE_MAP[ref.name.join(".")] ?? ref.name.join(".");
+      case "NullableTypeRef": return `${this.emitTypeRef(ref.base)} | null | undefined`;
+      case "GenericTypeRef": return `${GENERIC_TYPE_MAP[ref.base.name.join(".")] ?? ref.base.name.join(".")}<${ref.args.map((a) => a.star ? "any" : a.type ? this.emitTypeRef(a.type) : "unknown").join(", ")}>`;
+      case "FunctionTypeRef": return `(${ref.params.map((p, i) => `p${i}: ${this.emitTypeRef(p)}`).join(", ")}) => ${this.emitTypeRef(ref.returnType)}`;
+      case "StarProjection": return "any";
     }
   }
 
-  // ── Utility helpers ────────────────────────────────────────────────────────
-
-  private emitTypeParamsStr(params: readonly AST.TypeParam[]): string {
-    if (params.length === 0) return "";
-    const ps = params.map((p) => {
-      const bound = p.upperBound ? ` extends ${this.emitTypeRef(p.upperBound)}` : "";
-      return `${p.name}${bound}`;
-    });
-    return `<${ps.join(", ")}>`;
-  }
-
-  private emitParamsStr(params: readonly AST.Param[]): string {
-    return params.map((p) => {
-      const spread = p.vararg ? "..." : "";
-      // vararg params are rest params in TS: `...name: T[]`
-      const type = this.opts.emitTypes
-        ? `: ${this.emitTypeRef(p.type)}${p.vararg ? "[]" : ""}`
-        : "";
-      const def = p.defaultValue ? ` = ${this.emitExpr(p.defaultValue)}` : "";
-      return `${spread}${p.name}${type}${def}`;
-    }).join(", ");
-  }
-
-  private emitComponentPropsStr(params: readonly AST.Param[]): string {
-    if (params.length === 0) return "";
-    return params.map((p) => {
-      const type = this.opts.emitTypes ? `: ${this.emitTypeRef(p.type)}` : "";
-      return `${p.name}${type}`;
-    }).join(", ");
-  }
-
-  private emitSuperTypesStr(superTypes: readonly AST.SuperTypeEntry[]): string {
-    if (superTypes.length === 0) return "";
-    const parts: string[] = [];
-    let first = true;
-    for (const s of superTypes) {
-      // TypeScript does NOT allow constructor arguments in the `extends` clause.
-      // Delegation args are passed via `super(args)` inside the constructor.
-      if (first) {
-        parts.push(` extends ${this.emitTypeRef(s.type)}`);
-        first = false;
-      } else {
-        parts.push(` implements ${this.emitTypeRef(s.type)}`);
-      }
-    }
-    return parts.join("");
-  }
-
-  private exportPrefix(mods: AST.Modifiers): string {
-    if (mods.visibility === "private" || mods.visibility === "internal") return "";
-    return "export ";
-  }
-
-  private visibilityPrefix(mods: AST.Modifiers): string {
-    switch (mods.visibility) {
-      case "private":   return "private ";
-      case "protected": return "protected ";
-      case "internal":  return "/* internal */ ";
-      default:          return "";
-    }
-  }
-
-  private unaryOpStr(op: AST.UnaryOp): string {
-    if (op === "not") return "!";
-    return op;
-  }
-
-  private binaryOpStr(op: AST.BinaryOp): string {
-    switch (op) {
-      case "and": return "&&";
-      case "or":  return "||";
-      case "xor": return "^";
-      case "shl": return "<<";
-      case "shr": return ">>";
-      case "ushr": return ">>>";
-      // === / !== are JS reference equality (Jalvin's triple-equals)
-      case "===": return "===";
-      case "!==": return "!==";
-      case "..":  return "/* .. */ +"; // handled by range()
-      case "..<": return "/* ..< */ +";
-      default:    return op;
-    }
-  }
-
-  // ── AST name walkers (for wildcard import resolution) ─────────────────────
-
-  /**
-   * Walk the entire program AST and collect all identifier names that are
-   * REFERENCED (i.e., used) in the code: NameExpr values and the first name
-   * component of SimpleTypeRef / GenericTypeRef nodes.
-   *
-   * Jalvin primitive type names (String, Boolean, …) that map to TS primitives
-   * are excluded from TypeRef collection since they never need an import.
-   */
+  private emitTypeParamsStr(params: readonly AST.TypeParam[]): string { return params.length === 0 ? "" : `<${params.map((p) => `${p.name}${p.upperBound ? ` extends ${this.emitTypeRef(p.upperBound)}` : ""}`).join(", ")}>`; }
+  private emitParamsStr(params: readonly AST.Param[]): string { return params.map((p) => `${p.vararg ? "..." : ""}${p.name}${this.opts.emitTypes ? `: ${this.emitTypeRef(p.type)}${p.vararg ? "[]" : ""}` : ""}${p.defaultValue ? ` = ${this.emitExpr(p.defaultValue)}` : ""}`).join(", "); }
+  private emitSuperTypesStr(superTypes: readonly AST.SuperTypeEntry[]): string { return superTypes.length === 0 ? "" : superTypes.map((s, i) => i === 0 ? ` extends ${this.emitTypeRef(s.type)}` : ` implements ${this.emitTypeRef(s.type)}`).join(""); }
+  private exportPrefix(mods: AST.Modifiers): string { return (mods.visibility === "private" || mods.visibility === "internal") ? "" : "export "; }
+  private visibilityPrefix(mods: AST.Modifiers): string { switch (mods.visibility) { case "private": return "private "; case "protected": return "protected "; case "internal": return "/* internal */ "; default: return ""; } }
+  private unaryOpStr(op: AST.UnaryOp): string { return op === "not" ? "!" : op; }
+  private binaryOpStr(op: AST.BinaryOp): string { switch (op) { case "and": return "&&"; case "or": return "||"; case "xor": return "^"; case "shl": return "<<"; case "shr": return ">>"; case "ushr": return ">>>"; case "===": return "==="; case "!==": return "!=="; default: return op; } }
   private gatherReferencedNames(program: AST.Program): Set<string> {
-    const names = new Set<string>();
-    const visited = new WeakSet<object>();
-
+    const names = new Set<string>(); const visited = new WeakSet<object>();
     const walk = (val: unknown): void => {
-      if (!val || typeof val !== "object") return;
-      if (Array.isArray(val)) {
-        for (const item of val) walk(item);
-        return;
-      }
-      const obj = val as Record<string, unknown>;
-      if (visited.has(obj)) return;
-      visited.add(obj);
-
-      const kind = obj["kind"];
-
-      if (kind === "NameExpr") {
-        const name = obj["name"];
-        if (typeof name === "string") names.add(name);
-        return; // leaf node
-      }
-      if (kind === "SimpleTypeRef") {
-        const nameArr = obj["name"] as string[] | undefined;
-        if (Array.isArray(nameArr) && nameArr.length > 0) {
-          const first = nameArr[0]!;
-          // Skip Jalvin primitive type names — they're erased to TS primitives.
-          if (!(first in PRIMITIVE_TYPE_MAP)) names.add(first);
-        }
-        return;
-      }
-      if (kind === "GenericTypeRef") {
-        const base = obj["base"] as Record<string, unknown> | undefined;
-        const nameArr = base?.["name"] as string[] | undefined;
-        if (Array.isArray(nameArr) && nameArr.length > 0) {
-          const first = nameArr[0]!;
-          if (!(first in PRIMITIVE_TYPE_MAP)) names.add(first);
-        }
-        // Fall through to recurse into type arguments
-      }
-
-      for (const propVal of Object.values(obj)) {
-        walk(propVal);
-      }
+      if (!val || typeof val !== "object" || visited.has(val)) return; visited.add(val);
+      if (Array.isArray(val)) { val.forEach(walk); return; }
+      const obj = val as any;
+      if (obj.kind === "NameExpr") { if (typeof obj.name === "string") names.add(obj.name); return; }
+      if (obj.kind === "SimpleTypeRef") { if (obj.name?.[0] && !(obj.name[0] in PRIMITIVE_TYPE_MAP)) names.add(obj.name[0]); return; }
+      if (obj.kind === "GenericTypeRef") { if (obj.base?.name?.[0] && !(obj.base.name[0] in PRIMITIVE_TYPE_MAP)) names.add(obj.base.name[0]); }
+      Object.values(obj).forEach(walk);
     };
-
-    for (const decl of program.declarations) walk(decl);
-    return names;
+    program.declarations.forEach(walk); return names;
   }
-
-  /**
-   * Walk the entire program AST and collect all names that are LOCALLY DEFINED:
-   * top-level declaration names, non-star import aliases, function/lambda
-   * parameters, local val/var bindings, for-loop variables, catch-clause names,
-   * when-subject bindings, and type parameter names.
-   */
   private gatherAllLocalBindings(program: AST.Program): Set<string> {
-    const names = new Set<string>();
-    const visited = new WeakSet<object>();
-
-    // Top-level declaration names
-    for (const decl of program.declarations) {
-      const d = decl as unknown as { name?: unknown };
-      if (typeof d.name === "string" && d.name) names.add(d.name);
-    }
-
-    // Non-star import aliases
-    for (const imp of program.imports) {
-      if (!imp.star) {
-        const name = imp.alias ?? imp.path[imp.path.length - 1];
-        if (name) names.add(name);
-      }
-    }
-
+    const names = new Set<string>(); const visited = new WeakSet<object>();
+    program.declarations.forEach((d: any) => { if (d.name) names.add(d.name); });
+    program.imports.forEach((i) => { if (!i.star) names.add(i.alias ?? i.path[i.path.length - 1]!); });
     const walk = (val: unknown): void => {
-      if (!val || typeof val !== "object") return;
-      if (Array.isArray(val)) {
-        for (const item of val) walk(item);
-        return;
-      }
-      const obj = val as Record<string, unknown>;
-      if (visited.has(obj)) return;
-      visited.add(obj);
-
-      const kind = obj["kind"];
-
-      // Collect bound names at their declaration sites
-      if (kind === "PropertyDecl" || kind === "DestructuringDecl") {
-        if (typeof obj["name"] === "string") names.add(obj["name"] as string);
-        const nms = obj["names"] as unknown[] | undefined;
-        if (Array.isArray(nms)) {
-          for (const n of nms) { if (typeof n === "string") names.add(n); }
-        }
-      }
-      if (
-        kind === "FunDecl" || kind === "ExtensionFunDecl" ||
-        kind === "ComponentDecl" || kind === "ClassDecl" ||
-        kind === "DataClassDecl" || kind === "SealedClassDecl" ||
-        kind === "EnumClassDecl" || kind === "InterfaceDecl" ||
-        kind === "ObjectDecl" || kind === "TypeAliasDecl"
-      ) {
-        if (typeof obj["name"] === "string" && obj["name"]) names.add(obj["name"] as string);
-        // Type parameters
-        const typeParams = obj["typeParams"] as Array<{ name: string }> | undefined;
-        if (Array.isArray(typeParams)) {
-          for (const tp of typeParams) { if (tp.name) names.add(tp.name); }
-        }
-        // Function/method parameters
-        const params = obj["params"] as Array<{ name: string }> | undefined;
-        if (Array.isArray(params)) {
-          for (const p of params) { if (p.name) names.add(p.name); }
-        }
-      }
-      if (kind === "LambdaExpr") {
-        const params = obj["params"] as Array<{ name: string }> | undefined;
-        if (Array.isArray(params)) {
-          for (const p of params) { if (p.name) names.add(p.name); }
-        }
-      }
-      if (kind === "ForStmt") {
-        const binding = obj["binding"];
-        if (typeof binding === "string") {
-          names.add(binding);
-        } else if (binding && typeof binding === "object") {
-          const b = binding as Record<string, unknown>;
-          // TupleDestructure or MapDestructure
-          if (Array.isArray(b["names"])) {
-            for (const n of b["names"] as unknown[]) { if (typeof n === "string") names.add(n); }
-          }
-          if (typeof b["key"] === "string") names.add(b["key"] as string);
-          if (typeof b["value"] === "string") names.add(b["value"] as string);
-        }
-      }
-      if (kind === "TryCatchStmt") {
-        const catches = obj["catches"] as Array<{ name: string }> | undefined;
-        if (Array.isArray(catches)) {
-          for (const c of catches) { if (c.name) names.add(c.name); }
-        }
-      }
-      if (kind === "WhenStmt" || kind === "WhenExpr") {
-        const subject = obj["subject"] as Record<string, unknown> | undefined;
-        if (typeof subject?.["binding"] === "string") names.add(subject["binding"] as string);
-      }
-      if (kind === "SecondaryConstructor") {
-        const params = obj["params"] as Array<{ name: string }> | undefined;
-        if (Array.isArray(params)) {
-          for (const p of params) { if (p.name) names.add(p.name); }
-        }
-      }
-
-      for (const propVal of Object.values(obj)) {
-        walk(propVal);
-      }
+      if (!val || typeof val !== "object" || visited.has(val)) return; visited.add(val);
+      if (Array.isArray(val)) { val.forEach(walk); return; }
+      const obj = val as any;
+      if (["PropertyDecl", "DestructuringDecl", "FunDecl", "ExtensionFunDecl", "ComponentDecl", "ClassDecl", "DataClassDecl", "SealedClassDecl", "EnumClassDecl", "InterfaceDecl", "ObjectDecl", "TypeAliasDecl", "LambdaExpr"].includes(obj.kind) && obj.name) names.add(obj.name);
+      if (obj.typeParams) obj.typeParams.forEach((tp: any) => names.add(tp.name));
+      if (obj.params) obj.params.forEach((p: any) => names.add(p.name));
+      if (obj.kind === "ForStmt" && typeof obj.binding === "string") names.add(obj.binding);
+      if (obj.kind === "TryCatchStmt" && obj.catches) obj.catches.forEach((c: any) => names.add(c.name));
+      Object.values(obj).forEach(walk);
     };
-
-    for (const decl of program.declarations) walk(decl);
-    return names;
+    program.declarations.forEach(walk); return names;
   }
 }
 
-// ---------------------------------------------------------------------------
-// Type name mappings (Jalvin → TypeScript)
-// ---------------------------------------------------------------------------
-
-const PRIMITIVE_TYPE_MAP: Record<string, string> = {
-  Int:     "number",
-  Long:    "bigint",
-  Float:   "number",
-  Double:  "number",
-  Boolean: "boolean",
-  String:  "string",
-  Char:    "string",
-  Byte:    "number",
-  Short:   "number",
-  Unit:    "void",
-  Any:     "unknown",
-  Nothing: "never",
-};
-
-const GENERIC_TYPE_MAP: Record<string, string> = {
-  List:         "ReadonlyArray",
-  MutableList:  "Array",
-  Set:          "ReadonlySet",
-  MutableSet:   "Set",
-  Map:          "ReadonlyMap",
-  MutableMap:   "Map",
-  Array:        "Array",
-  Pair:         "[",  // handled specially
-  Triple:       "[",
-  Deferred:     "Promise",
-  StateFlow:    "StateFlow",
-  MutableStateFlow: "MutableStateFlow",
-  Flow:         "AsyncIterable",
-};
-
+const PRIMITIVE_TYPE_MAP: Record<string, string> = { Int: "number", Long: "bigint", Float: "number", Double: "number", Boolean: "boolean", String: "string", Char: "string", Byte: "number", Short: "number", Unit: "void", Any: "unknown", Nothing: "never" };
+const GENERIC_TYPE_MAP: Record<string, string> = { List: "ReadonlyArray", MutableList: "Array", Set: "ReadonlySet", MutableSet: "Set", Map: "ReadonlyMap", MutableMap: "Map", Array: "Array", Deferred: "Promise", StateFlow: "StateFlow", MutableStateFlow: "MutableStateFlow", Flow: "AsyncIterable" };
 const PRIMITIVE_TYPES = new Set(Object.keys(PRIMITIVE_TYPE_MAP));
+const JS_GLOBAL_NAMES = new Set(["Array", "Map", "Set", "Object", "String", "Number", "Boolean", "Promise", "Error", "console", "Math", "Date", "JSON", "setTimeout", "setInterval", "fetch", "document", "window", "undefined", "null", "NaN", "Infinity", "it", "this", "super", "any", "unknown", "never", "void"]);
 
-// ---------------------------------------------------------------------------
-// Well-known JavaScript / TypeScript global names that must never be emitted
-// as named imports from a wildcard-imported package.
-// ---------------------------------------------------------------------------
-
-const JS_GLOBAL_NAMES = new Set([
-  // JS built-in constructors and objects
-  "Array", "Map", "Set", "Object", "String", "Number", "Boolean",
-  "Promise", "Error", "TypeError", "RangeError", "SyntaxError", "URIError",
-  "EvalError", "ReferenceError",
-  "console", "Math", "Date", "JSON", "RegExp", "Symbol", "BigInt",
-  "Proxy", "Reflect", "globalThis", "Atomics", "SharedArrayBuffer",
-  "ArrayBuffer", "DataView", "Int8Array", "Uint8Array", "Uint8ClampedArray",
-  "Int16Array", "Uint16Array", "Int32Array", "Uint32Array",
-  "Float32Array", "Float64Array", "BigInt64Array", "BigUint64Array",
-  // Global functions
-  "isNaN", "isFinite", "parseInt", "parseFloat", "eval",
-  "encodeURI", "decodeURI", "encodeURIComponent", "decodeURIComponent",
-  // Browser/Node globals
-  "setTimeout", "clearTimeout", "setInterval", "clearInterval",
-  "queueMicrotask", "requestAnimationFrame", "cancelAnimationFrame",
-  "fetch", "URL", "URLSearchParams", "AbortController", "AbortSignal",
-  "EventTarget", "Event", "CustomEvent", "FormData", "Headers",
-  "Request", "Response", "Blob", "File", "FileReader",
-  "Worker", "SharedWorker", "WebSocket",
-  "ReadableStream", "WritableStream", "TransformStream",
-  "document", "window", "navigator", "location", "history", "screen",
-  "performance", "crypto", "indexedDB", "localStorage", "sessionStorage",
-  "confirm", "alert", "prompt",
-  "process", "Buffer", "global", "require", "module", "exports", "__dirname", "__filename",
-  // Special identifiers
-  "undefined", "null", "NaN", "Infinity",
-  "it", "this", "super", "arguments", "new", "class", "function",
-  // TypeScript primitive type names
-  "any", "unknown", "never", "void", "string", "number", "boolean", "bigint",
-  "object", "symbol",
-  // Jalvin type names that map to TS primitives (never need import)
-  "String", "Boolean", "Any", "Nothing", "Unit", "Char", "Byte", "Short",
-  "Float", "Double",
-]);
-
-// ---------------------------------------------------------------------------
-// Public helper
-// ---------------------------------------------------------------------------
-
-export function generate(
-  program: AST.Program,
-  opts?: Partial<CodegenOptions>,
-  operatorOverloads?: Map<AST.BinaryExpr, string>,
-  typeMap?: Map<object, JType>
-): CodegenResult {
-  return new CodeGenerator(opts).generate(program, operatorOverloads, typeMap);
-}
+export function generate(program: AST.Program, opts?: Partial<CodegenOptions>, operatorOverloads?: Map<AST.BinaryExpr, string>, typeMap?: Map<object, JType>): CodegenResult { return new CodeGenerator(opts).generate(program, operatorOverloads, typeMap); }

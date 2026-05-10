@@ -1,46 +1,44 @@
-import type { CSSProperties } from "react";
+/** Local definition for standard CSS properties. */
+export type CSSProperties = { [key: string]: string | number | undefined };
 
 export interface TextStyleDef {
-  fontSize: string;
+  fontSize: number;
+  lineHeight: number;
   fontWeight: number | "bold" | "normal";
-  lineHeight: string;
-  letterSpacing?: string;
+  letterSpacing: number;
+  fontFamily?: string;
+  color?: string;
 }
 
 export const TextStyle = {
-  displayLarge: { fontSize: "3.5rem",  fontWeight: 400, lineHeight: "4rem" } satisfies TextStyleDef,
-  displayMedium:{ fontSize: "2.8rem",  fontWeight: 400, lineHeight: "3.2rem" } satisfies TextStyleDef,
-  displaySmall: { fontSize: "2.25rem", fontWeight: 400, lineHeight: "2.75rem" } satisfies TextStyleDef,
+  displayLarge:    { fontSize: 57, lineHeight: 64, fontWeight: 400, letterSpacing: -0.25 },
+  displayMedium:   { fontSize: 45, lineHeight: 52, fontWeight: 400, letterSpacing: 0 },
+  displaySmall:    { fontSize: 36, lineHeight: 44, fontWeight: 400, letterSpacing: 0 },
+  headlineLarge:   { fontSize: 32, lineHeight: 40, fontWeight: 400, letterSpacing: 0 },
+  headlineMedium:  { fontSize: 28, lineHeight: 36, fontWeight: 400, letterSpacing: 0 },
+  headlineSmall:   { fontSize: 24, lineHeight: 32, fontWeight: 400, letterSpacing: 0 },
+  titleLarge:      { fontSize: 22, lineHeight: 28, fontWeight: 400, letterSpacing: 0 },
+  titleMedium:     { fontSize: 16, lineHeight: 24, fontWeight: 500, letterSpacing: 0.15 },
+  titleSmall:      { fontSize: 14, lineHeight: 20, fontWeight: 500, letterSpacing: 0.1 },
+  labelLarge:      { fontSize: 14, lineHeight: 20, fontWeight: 500, letterSpacing: 0.1 },
+  labelMedium:     { fontSize: 12, lineHeight: 16, fontWeight: 500, letterSpacing: 0.5 },
+  labelSmall:      { fontSize: 11, lineHeight: 16, fontWeight: 500, letterSpacing: 0.5 },
+  bodyLarge:       { fontSize: 16, lineHeight: 24, fontWeight: 400, letterSpacing: 0.5 },
+  bodyMedium:      { fontSize: 14, lineHeight: 20, fontWeight: 400, letterSpacing: 0.25 },
+  bodySmall:       { fontSize: 12, lineHeight: 16, fontWeight: 400, letterSpacing: 0.4 },
+} as const;
 
-  headlineLarge: { fontSize: "2rem",  fontWeight: 400, lineHeight: "2.5rem" } satisfies TextStyleDef,
-  headlineMedium:{ fontSize: "1.75rem",fontWeight: 400, lineHeight: "2.25rem" } satisfies TextStyleDef,
-  headlineSmall: { fontSize: "1.5rem", fontWeight: 400, lineHeight: "2rem" } satisfies TextStyleDef,
-
-  titleLarge:  { fontSize: "1.375rem", fontWeight: 500, lineHeight: "1.75rem" } satisfies TextStyleDef,
-  titleMedium: { fontSize: "1rem",     fontWeight: 500, lineHeight: "1.5rem", letterSpacing: "0.009em" } satisfies TextStyleDef,
-  titleSmall:  { fontSize: "0.875rem", fontWeight: 500, lineHeight: "1.25rem", letterSpacing: "0.007em" } satisfies TextStyleDef,
-
-  bodyLarge:   { fontSize: "1rem",     fontWeight: 400, lineHeight: "1.5rem", letterSpacing: "0.009em" } satisfies TextStyleDef,
-  bodyMedium:  { fontSize: "0.875rem", fontWeight: 400, lineHeight: "1.25rem", letterSpacing: "0.018em" } satisfies TextStyleDef,
-  bodySmall:   { fontSize: "0.75rem",  fontWeight: 400, lineHeight: "1rem", letterSpacing: "0.025em" } satisfies TextStyleDef,
-
-  labelLarge:  { fontSize: "0.875rem", fontWeight: 500, lineHeight: "1.25rem", letterSpacing: "0.007em" } satisfies TextStyleDef,
-  labelMedium: { fontSize: "0.75rem",  fontWeight: 500, lineHeight: "1rem", letterSpacing: "0.031em" } satisfies TextStyleDef,
-  labelSmall:  { fontSize: "0.6875rem",fontWeight: 500, lineHeight: "1rem", letterSpacing: "0.045em" } satisfies TextStyleDef,
-
-  // Shortcuts
-  h1: { fontSize: "2rem",     fontWeight: "bold", lineHeight: "2.5rem" } satisfies TextStyleDef,
-  h2: { fontSize: "1.5rem",   fontWeight: "bold", lineHeight: "2rem" } satisfies TextStyleDef,
-  h3: { fontSize: "1.25rem",  fontWeight: "bold", lineHeight: "1.75rem" } satisfies TextStyleDef,
-  h4: { fontSize: "1.125rem", fontWeight: "bold", lineHeight: "1.5rem" } satisfies TextStyleDef,
-  body: { fontSize: "1rem",   fontWeight: "normal", lineHeight: "1.5rem" } satisfies TextStyleDef,
-  caption: { fontSize: "0.75rem", fontWeight: "normal", lineHeight: "1rem" } satisfies TextStyleDef,
-  button: { fontSize: "0.875rem", fontWeight: 500, lineHeight: "1rem", letterSpacing: "0.031em" } satisfies TextStyleDef,
-  code: { fontSize: "0.875rem", fontWeight: "normal", lineHeight: "1.4rem", letterSpacing: "-0.01em" } satisfies TextStyleDef,
-} satisfies Record<string, TextStyleDef>;
-
-export type TextStyleKey = keyof typeof TextStyle;
-
+/**
+ * Converts a TextStyle token to standard CSS properties.
+ */
 export function textStyleToCSS(style: TextStyleDef): CSSProperties {
-  return style as CSSProperties;
+  const css: any = {
+    fontSize: `${style.fontSize}px`,
+    lineHeight: `${style.lineHeight}px`,
+    fontWeight: style.fontWeight,
+    letterSpacing: `${style.letterSpacing}px`,
+  };
+  if (style.fontFamily) css.fontFamily = style.fontFamily;
+  if (style.color) css.color = style.color;
+  return css;
 }

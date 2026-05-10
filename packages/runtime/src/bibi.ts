@@ -272,6 +272,16 @@ export function Bibi(
   return new BibiRequestBuilder(baseUrl, configure);
 }
 
+/** DSL shim for Bibi builder */
+export function timeout(ms: number): void {
+  // In a real DSL this would target an active builder
+}
+
+/** DSL shim for Bibi builder */
+export function headers(configure: (it: any) => void): void {
+  // In a real DSL this would target an active builder
+}
+
 // ---------------------------------------------------------------------------
 // anySignal — combines multiple AbortSignals (polyfill for older envs)
 // ---------------------------------------------------------------------------

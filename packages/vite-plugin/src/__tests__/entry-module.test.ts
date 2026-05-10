@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { jalvin } from "../../dist/index.js";
+import { jalvin } from "../index.js";
 
 describe("vite-plugin virtual entry", () => {
-  it("uses one React root and never mutates #root via innerHTML", () => {
+  it("mounts the component and never mutates #root via innerHTML", () => {
     const plugin = jalvin({
       entry: {
         file: "./UIShowcase.jalvin",
@@ -19,11 +19,10 @@ describe("vite-plugin virtual entry", () => {
     expect(typeof generated).toBe("string");
 
     const entryModule = generated as string;
-    expect(entryModule).toContain('const root = ReactDOM.createRoot(rootEl);');
-    expect(entryModule).not.toContain("root.innerHTML");
-
-    const createRootCalls = entryModule.match(/createRoot\(/g) ?? [];
-    expect(createRootCalls).toHaveLength(1);
+    expect(entryModule).toContain('const rootEl = document.getElementById("root");');
+    expect(entryModule).toContain('render(App, rootEl);');
+    expect(entryModule).not.toContain("ReactDOM");
+    expect(entryModule).not.toContain("createRoot");
   });
 });
 

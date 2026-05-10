@@ -18,13 +18,12 @@ import { generate, type CodegenOptions } from "./codegen.js";
 export interface CompileResult {
   readonly code: string;
   readonly lineMap: number[];
-  readonly isJsx: boolean;
   readonly diagnostics: DiagnosticBag;
   readonly ok: boolean;
 }
 
 /**
- * One-shot: source → TypeScript/TSX code.
+ * One-shot: source → TypeScript code.
  *
  * @param source  Raw .jalvin source text
  * @param file    File name (used in diagnostics / source maps)
@@ -39,12 +38,12 @@ export function compile(
 
   const tokens = lex(source, file, diag);
   if (diag.hasErrors) {
-    return { code: "", lineMap: [], isJsx: false, diagnostics: diag, ok: false };
+    return { code: "", lineMap: [], diagnostics: diag, ok: false };
   }
 
   const ast = parse(tokens, file, diag, source);
   if (diag.hasErrors) {
-    return { code: "", lineMap: [], isJsx: false, diagnostics: diag, ok: false };
+    return { code: "", lineMap: [], diagnostics: diag, ok: false };
   }
 
   const checker = typeCheck(ast, diag);
@@ -55,7 +54,6 @@ export function compile(
   return {
     code: result.code,
     lineMap: result.lineMap,
-    isJsx: result.isJsx,
     diagnostics: diag,
     ok: !diag.hasErrors,
   };

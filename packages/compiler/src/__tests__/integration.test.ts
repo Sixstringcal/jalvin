@@ -58,12 +58,6 @@ describe("Integration — Counter example output structure", () => {
     const result = compileExample(path.join(EXAMPLES_DIR, "01-counter/Counter.jalvin"));
     expect(result.code).toContain("function Counter");
   });
-
-  it("marks the output as JSX (Bug: was hardcoded false)", () => {
-    // Counter.jalvin contains `component fun Counter(...)` so isJsx must be true
-    const result = compileExample(path.join(EXAMPLES_DIR, "01-counter/Counter.jalvin"));
-    expect(result.isJsx).toBe(true);
-  });
 });
 
 describe("Integration — Cart example output structure", () => {
@@ -84,12 +78,6 @@ describe("Integration — UIShowcase output structure", () => {
   it("emits a UIShowcase component function", () => {
     const result = compileExample(path.join(EXAMPLES_DIR, "05-ui-showcase/UIShowcase.jalvin"));
     expect(result.code).toContain("function UIShowcase");
-  });
-
-  it("marks the output as JSX", () => {
-    const result = compileExample(path.join(EXAMPLES_DIR, "05-ui-showcase/UIShowcase.jalvin"));
-    // UIShowcase contains component funs — isJsx must be true
-    expect(result.isJsx).toBe(true);
   });
 
   it("emits section sub-components", () => {

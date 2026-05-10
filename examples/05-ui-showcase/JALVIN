@@ -1,0 +1,12 @@
+# Jalvin project configuration
+name = ui-showcase
+version = 1.0.0
+
+rootDir = .
+outDir = dist
+
+# UI / Vite options for 'jalvin dev'
+entryFile = UIShowcase.jalvin
+entryComponent = UIShowcase
+title = Jalvin UI Showcase
+port = 3333

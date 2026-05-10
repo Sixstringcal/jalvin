@@ -21,7 +21,7 @@ suspend fun main() {
 
 | Feature | Description |
 |---------|-------------|
-| `component fun` | React-compatible UI components — no `@Composable` annotation |
+| `component fun` | Standard UI components — compiled to Vanilla DOM |
 | `Bibi(url) { }` | Built-in HTTP client — always capitalised |
 | `suspend fun` / `launch {}` | Coroutines over the JS event loop |
 | `StateFlow` + `ViewModel` | First-class reactive state management |
@@ -247,7 +247,6 @@ name     = my-app
 version  = 1.0.0
 rootDir  = src
 outDir   = dist
-jsx      = true
 ```
 
 ---

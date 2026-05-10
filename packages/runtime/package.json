@@ -1,7 +1,8 @@
 {
   "name": "@jalvin/runtime",
   "version": "2.0.38",
-  "description": "Jalvin runtime — Bibi HTTP client, coroutines, StateFlow, ViewModel, UI hooks",
+  "description": "Jalvin runtime — Bibi HTTP client, coroutines, StateFlow, ViewModel, UI reactivity",
+  "type": "module",
   "main": "dist/index.js",
   "module": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -12,8 +13,12 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "publishConfig": { "access": "public" },
-  "files": ["dist"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -22,17 +27,10 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
   },
-  "peerDependencies": {
-    "react": ">=18.0.0"
-  },
-  "peerDependenciesMeta": {
-    "react": { "optional": true }
-  },
   "devDependencies": {
-    "typescript": "^5.4.0",
     "@types/node": "^20.0.0",
-    "@types/react": "^18.0.0",
     "@vitest/coverage-v8": "^2.1.9",
+    "typescript": "^5.4.0",
     "vitest": "^2.1.9"
   }
 }

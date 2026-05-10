@@ -2,6 +2,7 @@
   "name": "@jalvin/cli",
   "version": "2.0.38",
   "description": "Jalvin language — command line interface",
+  "type": "module",
   "bin": {
     "jalvin": "dist/cli.js"
   },
@@ -10,12 +11,13 @@
   "publishConfig": { "access": "public" },
   "files": ["dist"],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && sed -i '' '1s/^/#!\\/usr\\/bin\\/env node\\n/' dist/cli.js && chmod +x dist/cli.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@jalvin/compiler": "^2.0.38"
+    "@jalvin/compiler": "workspace:*",
+    "vite": "^5.0.0"
   },
   "devDependencies": {
     "typescript": "^5.4.0",

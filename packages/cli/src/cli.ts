@@ -1,11 +1,11 @@
-#!/usr/bin/env node
 // ─────────────────────────────────────────────────────────────────────────────
 // jalvin CLI — entry point
 //
 // Commands:
-//   jalvin build [files]    — compile .jalvin → .ts/.tsx
+//   jalvin build [files]    — compile .jalvin → .ts
 //   jalvin check [files]    — type-check without emitting
 //   jalvin run <file>       — compile + run as Node.js (via ts-node/tsx)
+//   jalvin dev              — start Vite dev server (UI projects)
 //   jalvin init [dir]       — scaffold a new Jalvin project
 //   jalvin version          — print version
 // ─────────────────────────────────────────────────────────────────────────────
@@ -27,6 +27,7 @@ Usage:
   jalvin build [--out <dir>] [<files|dirs>]   Compile .jalvin  → TypeScript
   jalvin check [<files|dirs>]                 Type-check without emitting
   jalvin run   <file> [-- args...]            Compile + execute (requires tsx)
+  jalvin dev                                  Start Vite dev server (zero-config)
   jalvin init  [<dir>]                        Create new project scaffold
   jalvin version                              Print version
 
@@ -42,8 +43,13 @@ Config:
 
     outDir = dist
     rootDir = src
-    jsx = true
     emitTypes = false
+
+  For UI projects, you can also specify:
+    entryFile = src/main.jalvin
+    entryComponent = App
+    title = My Wedding
+    port = 3000
 `);
 }
 
@@ -76,7 +82,7 @@ function parseArgs(argv: string[]): CliArgs {
   let i = 0;
   let pastDoubleDash = false;
 
-  const commands = new Set(["build", "check", "run", "init", "version", "help"]);
+  const commands = new Set(["build", "check", "run", "dev", "init", "version", "help"]);
 
   for (; i < raw.length; i++) {
     const arg = raw[i]!;
@@ -172,11 +178,10 @@ async function runBuild(args: CliArgs): Promise<void> {
   for (const file of files) {
     const source = fs.readFileSync(file, "utf8");
     const result = compile(source, file, {
-      jsx: config.jsx,
       emitTypes: args.emitTypes || config.emitTypes,
     });
 
-    for (const diag of result.diagnostics) {
+    for (const diag of result.diagnostics.items) {
       const sev = diag.severity;
       if (sev === "error") errors++;
       if (sev === "warning") warnings++;
@@ -191,7 +196,7 @@ async function runBuild(args: CliArgs): Promise<void> {
 
     if (!result.ok) continue;
 
-    const ext = result.isJsx ? ".tsx" : ".ts";
+    const ext = ".ts";
     const relative = path.relative(config.rootDir ?? "src", file).replace(JALVIN_EXT, ext);
     const outFile = path.join(outDir, relative);
 
@@ -230,7 +235,7 @@ async function runCheck(args: CliArgs): Promise<void> {
   for (const file of files) {
     const source = fs.readFileSync(file, "utf8");
     const result = compile(source, file);
-    for (const diag of result.diagnostics) {
+    for (const diag of result.diagnostics.items) {
       if (diag.severity === "error") errors++;
       if (diag.severity === "warning") warnings++;
       const color = diag.severity === "error" ? C.red : C.yellow;
@@ -261,7 +266,7 @@ async function runFile(args: CliArgs): Promise<void> {
   const result = compile(source, file);
 
   if (!result.ok) {
-    for (const diag of result.diagnostics) {
+    for (const diag of result.diagnostics.items) {
       if (diag.severity === "error") {
         console.error(`error: ${diag.message} [${diag.code}] at ${file}:${diag.span ? diag.span.startLine + 1 : "?"}`);
       }
@@ -270,7 +275,7 @@ async function runFile(args: CliArgs): Promise<void> {
   }
 
   const tmpDir = fs.mkdtempSync(path.join(process.env["TMPDIR"] ?? "/tmp", "jalvin-"));
-  const tmpFile = path.join(tmpDir, path.basename(file).replace(JALVIN_EXT, result.isJsx ? ".tsx" : ".ts"));
+  const tmpFile = path.join(tmpDir, path.basename(file).replace(JALVIN_EXT, ".ts"));
   fs.writeFileSync(tmpFile, result.code, "utf8");
 
   // Use tsx (fast TS runner) if available, fall back to ts-node
@@ -298,6 +303,96 @@ async function findRunner(): Promise<string | null> {
 }
 
 // ---------------------------------------------------------------------------
+// Dev command (Vite server)
+// ---------------------------------------------------------------------------
+
+async function runDev(): Promise<void> {
+  const config = await loadConfig(process.cwd());
+  
+  if (!config.entryFile || !config.entryComponent) {
+    console.error("error: 'entryFile' and 'entryComponent' must be set in JALVIN config for 'jalvin dev'");
+    console.log("Example JALVIN config:");
+    console.log("  entryFile = src/main.jalvin");
+    console.log("  entryComponent = WeddingApp");
+    process.exit(1);
+  }
+
+  console.log(`${colorize(true, C.cyan, "Jalvin")} starting dev server...`);
+
+  let vite: any;
+  let jalvinPlugin: any;
+
+  try {
+    vite = await import("vite");
+  } catch {
+    console.error("error: 'vite' not found. Please install it in your project:");
+    console.error("  npm install --save-dev vite");
+    process.exit(1);
+  }
+
+  try {
+    const pluginPath = path.resolve(process.cwd(), "node_modules/@jalvin/vite-plugin/dist/index.js");
+    const mod = await import(pluginPath);
+    jalvinPlugin = mod.jalvin || mod.default?.jalvin || mod.default || mod;
+  } catch (err) {
+    console.error("error: Failed to load local @jalvin/vite-plugin", err);
+    process.exit(1);
+  }
+
+  const server = await vite.createServer({
+    configFile: false,
+    root: process.cwd(),
+    server: {
+      port: config.port ?? 3000,
+      host: true,
+    },
+    plugins: [
+      jalvinPlugin({
+        entry: {
+          file: config.entryFile,
+          component: config.entryComponent,
+          title: config.title ?? "Jalvin App",
+        }
+      }),
+      {
+        name: "jalvin-react-blocker",
+        resolveId(id: string) {
+          if (id === "virtual:forbidden-react") return id;
+          return null;
+        },
+        load(id: string) {
+          if (id === "virtual:forbidden-react") {
+            return "export default {}; export const createElement = () => { throw new Error('React is forbidden in Jalvin projects'); };";
+          }
+          return null;
+        }
+      }
+    ],
+    optimizeDeps: {
+      exclude: ["@jalvin/runtime", "@jalvin/ui", "@jalvin/compiler", "react", "react-dom"],
+    },
+    esbuild: {
+      jsxFactory: "jalvinCreateElement",
+      jsxFragment: "Fragment",
+      define: {
+        "process.env.NODE_ENV": JSON.stringify("development"),
+      },
+    },
+    resolve: {
+      alias: {
+        src: path.resolve(process.cwd(), "src"),
+        "react": "virtual:forbidden-react",
+        "react-dom": "virtual:forbidden-react",
+      },
+      extensions: [".jalvin", ".mjs", ".js", ".mts", ".ts", ".jsx", ".tsx", ".json"],
+    }
+  });
+
+  await server.listen();
+  server.printUrls();
+}
+
+// ---------------------------------------------------------------------------
 // Init command
 // ---------------------------------------------------------------------------
 
@@ -315,11 +410,13 @@ version = 1.0.0
 rootDir = src
 outDir = dist
 
-# Uncomment to enable JSX / React
-# jsx = true
-
 # Enable TypeScript type annotations in emitted code
 emitTypes = false
+
+# UI / Vite options for 'jalvin dev'
+entryFile = src/main.jalvin
+entryComponent = App
+title = ${projectName}
 `;
   writeUnlessExists(path.join(dir, "JALVIN"), jalvinConfig);
 
@@ -331,31 +428,38 @@ emitTypes = false
   "scripts": {
     "build": "jalvin build",
     "check": "jalvin check",
-    "dev":   "jalvin build --watch"
+    "dev":   "jalvin dev"
   },
   "dependencies": {
-    "@jalvin/runtime": "^1.0.0"
+    "@jalvin/runtime": "^1.0.0",
+    "@jalvin/ui": "^1.0.0"
   },
   "devDependencies": {
-    "@jalvin/cli": "^1.0.0"
+    "@jalvin/cli": "^1.0.0",
+    "@jalvin/vite-plugin": "^1.0.0",
+    "vite": "^5.0.0"
   }
 }
 `;
   writeUnlessExists(path.join(dir, "package.json"), pkgJson);
 
   // Entry file
-  const mainJalvin = `// ${projectName} — main entry point
-import @jalvin/runtime.*
+  const mainJalvin = `import @jalvin/ui.*
 
-fun main() {
-    println("Hello from ${projectName}!")
-
-    val greeting = buildGreeting("World")
-    println(greeting)
+component fun App() {
+    return Column(modifier = Modifier.fillMaxSize().padding(32), spacing = 16) {
+        Text(text = "Welcome to Jalvin!", style = TextStyle.headlineLarge)
+        Text(text = "Edit src/main.jalvin to get started.")
+        
+        Button(
+            text = "Click Me",
+            onClick = { println("Button clicked!") }
+        )
+    }
 }
 
-fun buildGreeting(name: String): String {
-    return "Hello, $name! Welcome to Jalvin."
+fun main() {
+    println("App starting...")
 }
 `;
   writeUnlessExists(path.join(dir, "src", "main.jalvin"), mainJalvin);
@@ -377,8 +481,7 @@ dist/
 Next steps:
   cd ${dir}
   npm install
-  jalvin build
-  jalvin run src/main.jalvin
+  jalvin dev
 `);
 }
 
@@ -400,6 +503,7 @@ async function main(): Promise<void> {
     case "build":   await runBuild(args); break;
     case "check":   await runCheck(args); break;
     case "run":     await runFile(args); break;
+    case "dev":     await runDev(); break;
     case "init":    await runInit(args); break;
     case "version": console.log(`jalvin ${VERSION}`); break;
     default:        usage(); break;

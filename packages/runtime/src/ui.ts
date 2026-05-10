@@ -1,217 +1,152 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Jalvin UI runtime — React hooks for StateFlow, ViewModel, remember, mutableStateOf
-//
-// These are the companion hooks that make Jalvin's UI primitives
-// work inside React components.
-//
-// `component fun` blocks compiled to React components call these hooks.
+// Jalvin UI runtime — Vanilla DOM reactivity system
 // ─────────────────────────────────────────────────────────────────────────────
 
-// React is an optional peer dependency — guard against SSR and non-React targets
-type ReactModule = typeof import("react");
-let _react: ReactModule | null = null;
+import type { StateFlow } from "./stateflow.js";
+import { ViewModel, viewModel as vmLookup, clearViewModel } from "./stateflow.js";
 
-function getReact(): ReactModule {
-  if (_react) return _react;
-  try {
-    // Dynamic require keeps this file tree-shakeable in non-React builds
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    _react = require("react") as ReactModule;
-    return _react;
-  } catch {
-    throw new Error(
-      "[jalvin/runtime] React is required for component functions. " +
-      "Install react@>=18 and add it to your peer dependencies."
-    );
+// -- Reactivity Core --------------------------------------------------------
+
+type Subscriber = () => void;
+let activeSubscriber: Subscriber | null = null;
+let stateHolderIdCounter = 0;
+
+class StateHolder<T> {
+  private _value: T;
+  private subscribers = new Set<Subscriber>();
+  private readonly id = ++stateHolderIdCounter;
+
+  constructor(initial: T) {
+    this._value = initial;
+  }
+
+  get value(): T {
+    if (activeSubscriber) {
+      // console.log(`[State ${this.id}] Subscribing active render loop.`);
+      this.subscribers.add(activeSubscriber);
+    }
+    return this._value;
+  }
+
+  set value(next: T) {
+    if (!Object.is(this._value, next)) {
+      console.log(`[State ${this.id}] Value changing:`, this._value, "->", next, "| Notifying", this.subscribers.size, "subscribers");
+      this._value = next;
+      this.notify();
+    }
+  }
+
+  private notify() {
+    for (const sub of Array.from(this.subscribers)) {
+      sub();
+    }
   }
 }
 
-import type { StateFlow, MutableStateFlow } from "./stateflow.js";
-import { ViewModel, viewModel as vmLookup, clearViewModel } from "./stateflow.js";
+// -- Hook System ------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// mutableStateOf — like React.useState but returns a holder
-// ---------------------------------------------------------------------------
+let currentHookIndex = 0;
+let hookState: any[] = [];
+
+/** Reset the hook pointer (called at the start of every render). */
+function resetHooks() {
+  currentHookIndex = 0;
+}
+
+// -- Public Primitives ------------------------------------------------------
 
 export interface MutableState<T> {
   value: T;
 }
 
 /**
- * Hoisted `mutableStateOf(initial)` inside a `component fun`.
- * Returns a mutable object whose `.value` setter triggers a re-render.
- *
- * Compiled output:
- *   val count = mutableStateOf(0)
- *   →  const count = mutableStateOf(0);
- *      // count.value to read; count.value = x to update
+ * Returns a reactive state holder.
  */
 export function mutableStateOf<T>(initial: T): MutableState<T> {
-  const R = getReact();
-  const [v, setV] = R.useState<T>(initial);
-  // stateRef tracks the latest React state value. Updated on every render so
-  // the value getter always returns the current value, not the initial one.
-  const stateRef = R.useRef<T>(v);
-  const holderRef = R.useRef<MutableState<T> | null>(null);
-
-  stateRef.current = v;
-
-  if (holderRef.current === null) {
-    const holder = {} as MutableState<T>;
-    Object.defineProperties(holder, {
-      value: {
-        get() { return stateRef.current; },
-        set(next: T) {
-          if (!Object.is(stateRef.current, next)) setV(next);
-        },
-        enumerable: true,
-        configurable: false,
-      },
-    });
-    holderRef.current = holder;
-  }
-
-  return holderRef.current;
+  return new StateHolder(initial);
 }
 
-// ---------------------------------------------------------------------------
-// remember { } — memoised value across recompositions
-// ---------------------------------------------------------------------------
-
 /**
- * Compute an expensive value once and remember it.
- *
- *   val scope = remember { CoroutineScope() }
+ * Persists a value across re-renders.
  */
 export function remember<T>(compute: () => T, deps: readonly unknown[] = []): T {
-  const R = getReact();
-  return R.useMemo(compute, deps);
+  const idx = currentHookIndex++;
+  const existing = hookState[idx];
+
+  let depsChanged = !existing || !existing.deps || existing.deps.length !== deps.length;
+  if (!depsChanged && existing) {
+    for (let i = 0; i < deps.length; i++) {
+      if (!Object.is(deps[i], existing.deps[i])) {
+        depsChanged = true;
+        break;
+      }
+    }
+  }
+
+  if (depsChanged) {
+    hookState[idx] = { value: compute(), deps };
+  }
+  
+  return hookState[idx].value;
 }
 
 /**
- * `remember { mutableStateOf(0) }` — convenience wrapper.
+ * Convenience wrapper.
  */
 export function rememberMutableStateOf<T>(initial: T): MutableState<T> {
-  const R = getReact();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  return R.useMemo(() => mutableStateOf(initial), []);
+  return remember(() => mutableStateOf(initial));
 }
 
-// ---------------------------------------------------------------------------
-// collectAsState — subscribe to a StateFlow inside a component
-// ---------------------------------------------------------------------------
-
 /**
- * Collects a StateFlow into React state. The component re-renders when
- * the flow emits a new value.
- *
- *   val currentName by viewModel.name.collectAsState()
+ * Collects a StateFlow into reactive state, persisting the subscription across renders.
  */
 export function collectAsState<T>(flow: StateFlow<T>): T {
-  const R = getReact();
-  const [value, setValue] = R.useState<T>(flow.value);
-  R.useEffect(() => {
-    const unsub = flow.collect((v) => setValue(v));
-    return unsub;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const state = remember(() => {
+    const s = mutableStateOf(flow.value);
+    flow.collect((v) => { s.value = v; });
+    return s;
   }, [flow]);
-  return value;
+  
+  return state.value;
 }
 
-// ---------------------------------------------------------------------------
-// useViewModel — get or create a ViewModel scoped to a component subtree
-// ---------------------------------------------------------------------------
-
 /**
- * Returns a shared ViewModel instance for the given key.
- *
- *   val vm = useViewModel("CounterVm") { CounterViewModel() }
- */
-export function useViewModel<T extends ViewModel>(
-  key: string,
-  factory: () => T
-): T {
-  const R = getReact();
-  const vm = R.useMemo(() => vmLookup(key, factory), []);
-  R.useEffect(() => {
-    return () => clearViewModel(key);
-  // Only clear when the component truly unmounts from root
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  return vm;
-}
-
-// ---------------------------------------------------------------------------
-// LaunchedEffect — run a suspend block tied to component lifecycle
-// ---------------------------------------------------------------------------
-
-/**
- * Runs a suspend block when deps change. Cancels on unmount.
- *
- *   LaunchedEffect(Unit) {
- *       repeat(10) { delay(1_000) }
- *   }
+ * Runs an effect tied to "component" execution.
  */
 export function LaunchedEffect(
   deps: readonly unknown[],
   fn: () => Promise<void>
 ): void {
-  const R = getReact();
-  R.useEffect(() => {
-    let cancelled = false;
-    const guard = async () => {
-      if (!cancelled) await fn();
-    };
-    guard();
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  remember(() => {
+    fn();
+    return true;
   }, deps);
 }
-
-// ---------------------------------------------------------------------------
-// DisposableEffect — run setup/teardown on deps change
-// ---------------------------------------------------------------------------
 
 export function DisposableEffect(
   deps: readonly unknown[],
   fn: () => (() => void)
 ): void {
-  const R = getReact();
-  R.useEffect(() => {
-    const cleanup = fn();
-    return cleanup;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  remember(() => {
+    fn();
+    return true;
   }, deps);
 }
 
-// ---------------------------------------------------------------------------
-// SideEffect — run a non-suspending effect every recomposition
-// ---------------------------------------------------------------------------
-
 export function SideEffect(fn: () => void): void {
-  const R = getReact();
-  R.useEffect(fn);
+  fn();
 }
 
-// ---------------------------------------------------------------------------
-// WindowSizeClass — adaptive layout breakpoints (mirrors Compose WindowSizeClass)
-//
-// Breakpoints match Material Design 3 / Compose for Mobile:
-//   Compact  < 600dp   — phones in portrait
-//   Medium   600–839dp — tablets, foldables, large phones landscape
-//   Expanded ≥ 840dp   — desktop, large tablets
-// ---------------------------------------------------------------------------
+// -- Window Size ------------------------------------------------------------
 
 export type WindowSizeClass = "Compact" | "Medium" | "Expanded";
 
-/** @internal — exported for testing */
 export function widthToSizeClass(widthPx: number): WindowSizeClass {
   if (widthPx < 600) return "Compact";
   if (widthPx < 840) return "Medium";
   return "Expanded";
 }
 
-/** @internal — exported for testing */
 export function heightToSizeClass(heightPx: number): WindowSizeClass {
   if (heightPx < 480) return "Compact";
   if (heightPx < 900) return "Medium";
@@ -223,100 +158,75 @@ export interface WindowSizeClassState {
   heightSizeClass: WindowSizeClass;
 }
 
-// ---------------------------------------------------------------------------
-// WindowSizeClassProvider — single resize listener for the whole tree
-//
-// Mount this once at the app root. All calls to calculateWindowSizeClass()
-// read from this context, so a single resize event produces exactly one
-// coordinated state update regardless of how many components call the hook.
-// ---------------------------------------------------------------------------
+const windowSizeState = new StateHolder<WindowSizeClassState>({
+  widthSizeClass: widthToSizeClass(typeof window !== "undefined" ? window.innerWidth : 1280),
+  heightSizeClass: heightToSizeClass(typeof window !== "undefined" ? window.innerHeight : 800),
+});
 
-const DEFAULT_WINDOW_SIZE_CLASS: WindowSizeClassState = {
-  widthSizeClass: "Expanded",
-  heightSizeClass: "Medium",
-};
-
-// Lazily created so the module remains usable in non-React (Node) builds.
-let _WindowSizeClassContext: import("react").Context<WindowSizeClassState> | null = null;
-
-function getWindowSizeClassContext(): import("react").Context<WindowSizeClassState> {
-  if (!_WindowSizeClassContext) {
-    _WindowSizeClassContext = getReact().createContext<WindowSizeClassState>(DEFAULT_WINDOW_SIZE_CLASS);
-  }
-  return _WindowSizeClassContext;
-}
-
-/**
- * Mount once at the app root. Registers a single `resize` listener and
- * distributes the current {@link WindowSizeClassState} to all descendants
- * that call {@link calculateWindowSizeClass}.
- *
- * The vite-plugin entry module wraps the root component in this provider
- * automatically when the `entry` option is used.
- *
- * @example
- * ```jalvin
- * // main entry
- * root.render(
- *   WindowSizeClassProvider { MyApp() }
- * )
- * ```
- */
-export function WindowSizeClassProvider(
-  { children }: { children?: import("react").ReactNode },
-): import("react").ReactElement {
-  const R = getReact();
-
-  const getState = (): WindowSizeClassState => ({
-    widthSizeClass:  widthToSizeClass(typeof window !== "undefined" ? window.innerWidth  : 1280),
-    heightSizeClass: heightToSizeClass(typeof window !== "undefined" ? window.innerHeight : 800),
-  });
-
-  const [state, setState] = R.useState<WindowSizeClassState>(getState);
-
-  R.useEffect(() => {
-    const onResize = () => {
-      const next = getState();
-      setState(prev =>
-        prev.widthSizeClass === next.widthSizeClass &&
-        prev.heightSizeClass === next.heightSizeClass
-          ? prev
-          : next
-      );
+if (typeof window !== "undefined") {
+  window.addEventListener("resize", () => {
+    windowSizeState.value = {
+      widthSizeClass: widthToSizeClass(window.innerWidth),
+      heightSizeClass: heightToSizeClass(window.innerHeight),
     };
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const ctx = getWindowSizeClassContext();
-  return R.createElement(ctx.Provider, { value: state }, children);
+  });
 }
 
-/**
- * Returns the current {@link WindowSizeClassState}. Re-renders only when the
- * window crosses a breakpoint boundary.
- *
- * Requires {@link WindowSizeClassProvider} to be mounted somewhere above this
- * component in the tree (the vite-plugin does this automatically). If no
- * provider is found the hook falls back to "Expanded/Medium" and logs a
- * warning in development.
- *
- * Mirrors `calculateWindowSizeClass()` from Compose Material3 Adaptive.
- *
- * @example
- * ```jalvin
- * component fun AdaptiveLayout() {
- *   val windowSize = calculateWindowSizeClass()
- *   if (windowSize.widthSizeClass == "Compact") {
- *     MobileLayout()
- *   } else {
- *     DesktopLayout()
- *   }
- * }
- * ```
- */
 export function calculateWindowSizeClass(): WindowSizeClassState {
-  const R = getReact();
-  return R.useContext(getWindowSizeClassContext());
+  return windowSizeState.value;
+}
+
+export function WindowSizeClassProvider({ children }: { children?: any }): any {
+  return children;
+}
+
+// -- ViewModels -------------------------------------------------------------
+
+export { viewModel as useViewModel } from "./stateflow.js";
+
+// -- Root Rendering ---------------------------------------------------------
+
+let renderCount = 0;
+import { patch } from "./dom.js";
+import type { VNode } from "./dom.js";
+
+/**
+ * Mounts a Jalvin component to the DOM and sets up the re-render loop.
+ */
+export function render(rootComponent: () => VNode, container: HTMLElement): void {
+  // Store the last rendered VNode on the container
+  let oldVNode: VNode | null = (container as any)._jalvin_vnode || null;
+
+  const update = () => {
+    renderCount++;
+    console.log(`[RENDER] Cycle ${renderCount} starting...`);
+    activeSubscriber = update;
+    resetHooks();
+    
+    // Save current active element (focus) and selection
+    let activeId = "";
+    if (document.activeElement && document.activeElement.id) {
+      activeId = document.activeElement.id;
+    } else if (document.activeElement && document.activeElement.tagName === "INPUT") {
+      activeId = (document.activeElement as HTMLInputElement).name;
+    }
+    
+    const newVNode = rootComponent();
+    
+    // Patch the DOM instead of recreating it
+    patch(container, newVNode, oldVNode);
+    oldVNode = newVNode;
+    (container as any)._jalvin_vnode = oldVNode;
+    
+    // Restore focus if possible
+    if (activeId) {
+      const toFocus = document.getElementById(activeId) || document.querySelector(`input[name="${activeId}"]`);
+      if (toFocus) (toFocus as HTMLElement).focus();
+    }
+    
+    activeSubscriber = null;
+    console.log(`[RENDER] Cycle ${renderCount} finished.`);
+  };
+
+  update();
 }

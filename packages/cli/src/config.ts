@@ -7,8 +7,13 @@
 //   version = 1.0.0
 //   rootDir = src
 //   outDir = dist
-//   jsx = true
 //   emitTypes = false
+//
+// UI / Vite options:
+//   entryFile = src/main.jalvin
+//   entryComponent = App
+//   title = My App
+//   port = 3000
 // ─────────────────────────────────────────────────────────────────────────────
 
 import * as fs from "node:fs";
@@ -19,14 +24,17 @@ export interface JalvinConfig {
   version?: string;
   rootDir: string;
   outDir: string;
-  jsx: boolean;
   emitTypes: boolean;
+  // UI / Vite
+  entryFile?: string;
+  entryComponent?: string;
+  title?: string;
+  port?: number;
 }
 
 const DEFAULTS: JalvinConfig = {
   rootDir: "src",
   outDir: "dist",
-  jsx: false,
   emitTypes: false,
 };
 
@@ -48,12 +56,15 @@ export async function loadConfig(projectRoot: string): Promise<JalvinConfig> {
     const value = line.slice(eqIdx + 1).trim();
 
     switch (key) {
-      case "name":      config.name = value; break;
-      case "version":   config.version = value; break;
-      case "rootDir":   config.rootDir = value; break;
-      case "outDir":    config.outDir = value; break;
-      case "jsx":       config.jsx = value === "true"; break;
-      case "emitTypes": config.emitTypes = value === "true"; break;
+      case "name":           config.name = value; break;
+      case "version":        config.version = value; break;
+      case "rootDir":        config.rootDir = value; break;
+      case "outDir":         config.outDir = value; break;
+      case "emitTypes":      config.emitTypes = value === "true"; break;
+      case "entryFile":      config.entryFile = value; break;
+      case "entryComponent": config.entryComponent = value; break;
+      case "title":          config.title = value; break;
+      case "port":           config.port = parseInt(value, 10); break;
     }
   }
 

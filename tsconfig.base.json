@@ -17,6 +17,9 @@
     "rootDir": "src",
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "jsx": "react",
+    "jsxFactory": "jalvinCreateElement",
+    "jsxFragmentFactory": "Fragment"
   }
 }

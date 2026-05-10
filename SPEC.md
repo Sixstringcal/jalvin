@@ -22,7 +22,7 @@ Design goals:
 |---------|-------|
 | Source extension | `.jalvin` |
 | Project config | `JALVIN` (no extension, all caps, at project root) |
-| Compiled output | `.ts` or `.tsx` (JSX files) |
+| Compiled output | .ts or .tsx (Vanilla DOM) |
 
 ---
 
@@ -166,7 +166,7 @@ component fun Greeting(name: String) {
 }
 ```
 
-Compiles to a React functional component. The component receives a typed props interface automatically generated from its parameters.
+Compiles to a standard functional component that returns an `HTMLElement`. The component receives a typed props interface automatically generated from its parameters.
 
 ### 5.3 Properties
 
@@ -691,7 +691,6 @@ name        = my-app
 version     = 1.0.0
 rootDir     = src
 outDir      = dist
-jsx         = true
 emitTypes   = false
 ```
 

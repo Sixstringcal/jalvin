@@ -10,12 +10,12 @@ function gen(source: string): string {
   const tokens = lex(source, "test.jalvin", diag);
   const ast = parse(tokens, "test.jalvin", diag, source);
   const checker = typeCheck(ast, diag);
-  const result = generate(ast, { jsx: true }, checker.operatorOverloadMap, checker.typeMap);
+  const result = generate(ast, {}, checker.operatorOverloadMap, checker.typeMap);
   return result.code;
 }
 
-describe("Component Codegen (React.createElement)", () => {
-  it("emits React import and uses React.createElement for component calls", () => {
+describe("Component Codegen (Functional)", () => {
+  it("emits direct functional calls for component calls", () => {
     const code = gen(`
       component fun Button(label: String) {
           return (<button>{label}</button>)
@@ -25,12 +25,12 @@ describe("Component Codegen (React.createElement)", () => {
       }
     `);
 
-    expect(code).toContain('import React from "react";');
+    expect(code).not.toContain('import React from "react";');
     expect(code).toContain('function Button({ label }: ButtonProps)');
-    expect(code).toContain('return React.createElement(Button, { label: "Click Me" })');
+    expect(code).toContain('return Button({ label: "Click Me" })');
   });
 
-  it("handles trailing lambdas as children in React.createElement", () => {
+  it("handles trailing lambdas as children in functional calls", () => {
     const code = gen(`
       component fun Box(children: Any) {
           return (<div>{children}</div>)
@@ -42,8 +42,8 @@ describe("Component Codegen (React.createElement)", () => {
       }
     `);
 
-    expect(code).toContain('function Box({ children }: BoxProps)');
-    expect(code).toContain('return React.createElement(Box, {}, [(<span />)])');
+    expect(code).toContain('function Box({}, children?: any)');
+    expect(code).toContain('return Box({}, [(jalvinCreateElement("span", {}, []))])');
   });
 
   it("handles components with no parameters", () => {
@@ -53,7 +53,7 @@ describe("Component Codegen (React.createElement)", () => {
     `);
 
     expect(code).toContain('function Divider()');
-    expect(code).toContain('return React.createElement(Divider, {})');
+    expect(code).toContain('return Divider({})');
   });
 
   it("handles mixed named and positional arguments correctly", () => {
@@ -64,10 +64,10 @@ describe("Component Codegen (React.createElement)", () => {
       }
     `);
 
-    expect(code).toContain('return React.createElement(Avatar, { url: "https://example.com/a.png", size: 80 })');
+    expect(code).toContain('return Avatar({ url: "https://example.com/a.png", size: 80 })');
   });
 
-  it("uses React.createElement for conditional component calls to ensure boundaries", () => {
+  it("uses direct calls for conditional component calls", () => {
     const code = gen(`
       import @jalvin/runtime.*
       component fun ChildA() { val x = remember { "A" } }
@@ -81,11 +81,11 @@ describe("Component Codegen (React.createElement)", () => {
       }
     `);
 
-    expect(code).toContain("return React.createElement(ChildA, {})");
-    expect(code).toContain("return React.createElement(ChildB, {})");
+    expect(code).toContain("return ChildA({})");
+    expect(code).toContain("return ChildB({})");
   });
 
-  it("uses React.createElement for component calls inside loops", () => {
+  it("uses functional calls inside loops", () => {
     const code = gen(`
       import @jalvin/ui.Column
       component fun Item(id: Int) { }
@@ -98,7 +98,7 @@ describe("Component Codegen (React.createElement)", () => {
       }
     `);
 
-    expect(code).toContain("React.createElement(Item, { id: item })");
+    expect(code).toContain("Item({ id: item })");
   });
 
   it("emits valid class method syntax for components declared inside classes", () => {
@@ -115,7 +115,7 @@ describe("Component Codegen (React.createElement)", () => {
     expect(code).toContain("return Text({ text: label })");
   });
 
-  it("uses React.createElement for member component calls", () => {
+  it("uses direct functional calls for member component calls", () => {
     const code = gen(`
       class MyView() {
           component fun SubComp() { }
@@ -126,6 +126,6 @@ describe("Component Codegen (React.createElement)", () => {
       }
     `);
 
-    expect(code).toContain("return React.createElement(view.SubComp, {})");
+    expect(code).toContain("return view.SubComp({})");
   });
 });
