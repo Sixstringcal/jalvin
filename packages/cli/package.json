@@ -16,7 +16,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@jalvin/compiler": "workspace:*",
+    "@jalvin/compiler": "2.0.39",
     "vite": "^5.0.0"
   },
   "devDependencies": {

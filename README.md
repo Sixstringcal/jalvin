@@ -1,6 +1,6 @@
 # Jalvin
 
-A statically-typed programming language that compiles to TypeScript/TSX — and targets web, Android, iOS, Wear OS, CarPlay, and beyond.
+A statically-typed programming language that compiles to TypeScript — and targets web, Android, iOS, Wear OS, CarPlay, and beyond.
 
 ```jalvin
 component fun HelloWorld(name: String) {
