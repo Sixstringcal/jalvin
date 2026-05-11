@@ -180,6 +180,16 @@ export function jalvin(opts: JalvinViteOptions = {}): any {
       cfg.esbuild.jsxFactory = "jalvinCreateElement";
       cfg.esbuild.jsxFragment = "Fragment";
 
+      // Force a single runtime instance across all symlinked packages.
+      // Without this, @jalvin/ui (symlinked into the monorepo) resolves
+      // @jalvin/runtime from its own node_modules and gets a separate copy,
+      // splitting the render loop's activeSubscriber from the hook state.
+      cfg.resolve = cfg.resolve ?? {};
+      cfg.resolve.dedupe = cfg.resolve.dedupe ?? [];
+      for (const pkg of ["@jalvin/runtime", "@jalvin/ui"]) {
+        if (!cfg.resolve.dedupe.includes(pkg)) cfg.resolve.dedupe.push(pkg);
+      }
+
       if (!opts.entry) return;
       if (command === "build") {
         // For builds, set the virtual entry as the rollup input.

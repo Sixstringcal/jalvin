@@ -201,6 +201,11 @@ async function runBuild(args: CliArgs): Promise<void> {
     const outFile = path.join(outDir, relative);
 
     fs.mkdirSync(path.dirname(outFile), { recursive: true });
+
+    // Remove any legacy .tsx peer left by older React-era builds.
+    const legacyPeer = outFile.replace(/\.ts$/, ".tsx");
+    if (legacyPeer !== outFile && fs.existsSync(legacyPeer)) fs.rmSync(legacyPeer);
+
     fs.writeFileSync(outFile, result.code, "utf8");
 
     if (args.verbose) {

@@ -30,6 +30,15 @@ export type { StateFlow, Subscriber, Unsubscribe } from "./stateflow.js";
 // UI hooks & Rendering
 export { jalvinCreateElement, patch } from "./dom.js";
 
+// Router — Compose Navigation-style declarative routing
+export {
+  NavController,
+  NavGraphBuilder,
+  NavHost,
+  rememberNavController,
+} from "./nav.js";
+export type { BackStackEntry, NavOptions } from "./nav.js";
+
 export {
   mutableStateOf, remember, rememberMutableStateOf,
   collectAsState,

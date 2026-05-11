@@ -1,0 +1,158 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Example 6: Router — Compose Navigation-style declarative routing
+//
+// Demonstrates:
+//   - rememberNavController()
+//   - NavHost with graph.composable() DSL
+//   - Route parameters via {param} placeholders
+//   - navigate(), popBackStack(), canPopBackStack()
+//   - NavOptions: launchSingleTop, popUpTo + popUpToInclusive
+//   - ViewModel-based screen state (recommended over raw mutableStateOf in screens)
+// ─────────────────────────────────────────────────────────────────────────────
+
+import @jalvin/runtime.*
+import @jalvin/ui.Column
+import @jalvin/ui.Row
+import @jalvin/ui.Text
+import @jalvin/ui.Button
+import @jalvin/ui.Modifier
+import @jalvin/ui.TextStyle
+import @jalvin/ui.Color
+import @jalvin/ui.Surface
+import @jalvin/ui.Spacer
+
+// ── ViewModels ────────────────────────────────────────────────────────────────
+
+class FeedViewModel : ViewModel() {
+    val posts: MutableStateFlow<List<String>> = MutableStateFlow(listOf(
+        "Jalvin ships declarative routing",
+        "VNode diffing is fast",
+        "Coroutines make async easy"
+    ))
+}
+
+class PostViewModel : ViewModel() {
+    val liked: MutableStateFlow<Boolean> = MutableStateFlow(false)
+
+    fun toggleLike() {
+        liked.update { !it }
+    }
+}
+
+// ── Screens ───────────────────────────────────────────────────────────────────
+
+// Home screen — a simple feed of posts
+component fun HomeScreen(navController: NavController) {
+    val vm = useViewModel("feed") { FeedViewModel() }
+    val posts = collectAsState(vm.posts)
+
+    return Column(modifier = Modifier.fillMaxWidth().padding(24), spacing = 16) {
+        Text(text = "Feed", style = TextStyle.headlineMedium)
+        posts.mapIndexed { index, post ->
+            Surface(modifier = Modifier.fillMaxWidth().padding(12)) {
+                Row(spacing = 12) {
+                    Text(text = post, modifier = Modifier.weight(1))
+                    Button(
+                        text = "Read",
+                        variant = "outlined",
+                        onClick = { navController.navigate("post/${index}") })
+                }
+            }
+        }
+        Row(spacing = 8) {
+            Button(
+                text = "Profile",
+                variant = "filled",
+                onClick = { navController.navigate("profile/me") })
+            Button(
+                text = "Settings",
+                variant = "text",
+                onClick = { navController.navigate("settings") })
+        }
+    }
+}
+
+// Post detail screen — reads the postId route argument
+component fun PostScreen(navController: NavController, entry: BackStackEntry) {
+    val postId = entry.arguments["postId"] ?: "?"
+    val vm = useViewModel("post-${postId}") { PostViewModel() }
+    val liked = collectAsState(vm.liked)
+
+    return Column(modifier = Modifier.fillMaxWidth().padding(24), spacing = 16) {
+        Text(text = "Post #${postId}", style = TextStyle.headlineMedium)
+        Text(text = "This is the full content of post ${postId}.")
+        Row(spacing = 8) {
+            Button(
+                text = if (liked) "♥ Liked" else "♡ Like",
+                variant = if (liked) "filled" else "outlined",
+                onClick = { vm.toggleLike() })
+            Spacer(modifier = Modifier.weight(1))
+            Button(
+                text = "← Back",
+                variant = "text",
+                onClick = { navController.popBackStack() })
+        }
+    }
+}
+
+// Profile screen — reads the userId route argument
+component fun ProfileScreen(navController: NavController, entry: BackStackEntry) {
+    val userId = entry.arguments["userId"] ?: "unknown"
+
+    return Column(modifier = Modifier.fillMaxWidth().padding(24), spacing = 16) {
+        Text(text = "Profile: ${userId}", style = TextStyle.headlineMedium)
+        Text(text = "User ID: ${userId}")
+        Row(spacing = 8) {
+            Button(
+                text = "Settings",
+                variant = "outlined",
+                onClick = { navController.navigate("settings") })
+            Spacer(modifier = Modifier.weight(1))
+            Button(
+                text = "← Back",
+                variant = "text",
+                onClick = { navController.popBackStack() })
+        }
+    }
+}
+
+// Settings screen — uses launchSingleTop so navigating here twice doesn't stack
+component fun SettingsScreen(navController: NavController) {
+    return Column(modifier = Modifier.fillMaxWidth().padding(24), spacing = 16) {
+        Text(text = "Settings", style = TextStyle.headlineMedium)
+        Text(text = "App version: 0.6.0")
+        Button(
+            text = "← Home",
+            variant = "text",
+            // popUpTo + popUpToInclusive = false keeps "home" in the stack
+            onClick = { navController.navigate("home", NavOptions(popUpTo = "home", popUpToInclusive = false)) })
+    }
+}
+
+// ── App root ──────────────────────────────────────────────────────────────────
+
+// The root component wires everything together with NavHost.
+// rememberNavController() creates the controller once and persists it across renders.
+component fun App() {
+    val nav = rememberNavController()
+
+    return NavHost(navController = nav, startDestination = "home") { graph ->
+        graph.composable("home") {
+            HomeScreen(navController = nav)
+        }
+        graph.composable("post/{postId}") { entry ->
+            PostScreen(navController = nav, entry = entry)
+        }
+        graph.composable("profile/{userId}") { entry ->
+            ProfileScreen(navController = nav, entry = entry)
+        }
+        // Settings uses launchSingleTop — safe to call navigate("settings") multiple times
+        graph.composable("settings") { entry ->
+            SettingsScreen(navController = nav)
+        }
+    }
+}
+
+fun main() {
+    println("Router example — open in browser with Vite")
+}
