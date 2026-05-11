@@ -28,7 +28,7 @@ export {
 export type { StateFlow, Subscriber, Unsubscribe } from "./stateflow.js";
 
 // UI hooks & Rendering
-export { jalvinCreateElement } from "./dom.js";
+export { jalvinCreateElement, patch } from "./dom.js";
 
 export {
   mutableStateOf, remember, rememberMutableStateOf,

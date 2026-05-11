@@ -8,7 +8,7 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/__tests__/setup.ts"],
     alias: {
-      "@jalvin/runtime": path.resolve(__dirname, "../runtime/src/index.ts")
+      "@jalvin/runtime": path.resolve(__dirname, "../runtime/dist/index.js")
     }
   },
 });

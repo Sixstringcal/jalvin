@@ -8,12 +8,12 @@ import {
   renderAnnotatedString,
 } from "../annotated-string.js";
 import { Text } from "../text.js";
-import { jalvinCreateElement } from "@jalvin/runtime";
+import { jalvinCreateElement, patch } from "@jalvin/runtime";
 
-/** Helper to render a node to the document body for testing. */
-function render(node: Node) {
+/** Helper to render a VNode to the document body for testing. */
+function render(vnode: any) {
   document.body.innerHTML = "";
-  document.body.appendChild(node);
+  patch(document.body, vnode);
   return { container: document.body };
 }
 

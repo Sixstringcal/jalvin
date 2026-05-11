@@ -3,11 +3,12 @@ import { screen } from "@testing-library/dom";
 import "@testing-library/jest-dom";
 import { Text } from "../text.js";
 import { TextStyle } from "../typography.js";
+import { patch } from "@jalvin/runtime";
 
-/** Helper to render a node to the document body for testing. */
-function render(node: Node) {
+/** Helper to render a VNode to the document body for testing. */
+function render(vnode: any) {
   document.body.innerHTML = "";
-  document.body.appendChild(node);
+  patch(document.body, vnode);
   return { container: document.body };
 }
 
