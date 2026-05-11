@@ -43,8 +43,8 @@ importers:
   packages/cli:
     dependencies:
       '@jalvin/compiler':
-        specifier: workspace:*
-        version: link:../compiler
+        specifier: 2.0.39
+        version: 2.0.39
       vite:
         specifier: ^5.0.0
         version: 5.4.21(@types/node@20.19.40)(terser@5.47.1)
@@ -89,8 +89,8 @@ importers:
   packages/ui:
     devDependencies:
       '@jalvin/runtime':
-        specifier: workspace:*
-        version: link:../runtime
+        specifier: 2.0.39
+        version: 2.0.39
       '@testing-library/dom':
         specifier: ^10.4.1
         version: 10.4.1
@@ -113,8 +113,8 @@ importers:
   packages/vite-plugin:
     dependencies:
       '@jalvin/compiler':
-        specifier: workspace:*
-        version: link:../compiler
+        specifier: 2.0.39
+        version: 2.0.39
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
@@ -146,8 +146,8 @@ importers:
   packages/webpack-plugin:
     dependencies:
       '@jalvin/compiler':
-        specifier: ^2.0.38
-        version: 2.0.38
+        specifier: ^2.0.39
+        version: 2.0.39
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
@@ -409,8 +409,11 @@ packages:
     resolution: {integrity: sha512-+Sg6GCR/wy1oSmQDFq4LQDAhm3ETKnorxN+y5nbLULOR3P0c14f2Wurzj3/xqPXtasLFfHd5iRFQ7AJt4KH2cw==}
     engines: {node: '>=8'}
 
-  '@jalvin/compiler@2.0.38':
-    resolution: {integrity: sha512-EuvbZZ98avmxukbKkixj2BOX6yPP/d6RPJlD2c8Vua2U2LlZNv2rPtmEinu9K/F51RueqAssUbj94kLEsVygig==}
+  '@jalvin/compiler@2.0.39':
+    resolution: {integrity: sha512-sjE/RMgCwFzdsSkzgx7dRT8uk4veQ4G2ts9DTbKAzVReM/DCVoLHcWefJ/6uuGpgS42NleOWKoCS6v2WOndq/A==}
+
+  '@jalvin/runtime@2.0.39':
+    resolution: {integrity: sha512-Z+iF8GBkBWpJNiXtNInpbJV5ua/lFmUirp/EfCJAB0CnsjMO8EhNySIDJ8mKBpY/1D9Dp3jAkblws3nEnH20tQ==}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -1603,7 +1606,9 @@ snapshots:
 
   '@istanbuljs/schema@0.1.6': {}
 
-  '@jalvin/compiler@2.0.38': {}
+  '@jalvin/compiler@2.0.39': {}
+
+  '@jalvin/runtime@2.0.39': {}
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
