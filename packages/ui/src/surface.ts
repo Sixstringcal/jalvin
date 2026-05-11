@@ -108,7 +108,7 @@ export function TopBar({
 }: TopBarProps): HTMLElement {
   const modProps = modifier?.toProps() ?? {};
   
-  const titleNode = typeof title === "string" ? document.createTextNode(title) : title;
+  const titleNode: any = title;
 
   const barChildren: Node[] = [];
   if (navigationIcon) barChildren.push(navigationIcon);

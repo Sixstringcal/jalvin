@@ -33,11 +33,11 @@ export function Text({
     overflow: "hidden",
   } : {};
 
-  let content: Node[];
+  let content: Array<Node | string>;
   if (typeof text === "object" && text !== null && "spanStyles" in text) {
     content = renderAnnotatedString(text);
   } else if (text !== undefined) {
-    content = [document.createTextNode(String(text))];
+    content = [String(text)];
   } else {
     content = children ?? [];
   }

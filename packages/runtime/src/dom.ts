@@ -77,7 +77,16 @@ export function patch(parentEl: HTMLElement, newVNode: VNode | string | null, ol
   } else if (typeof newVNode === "object" && typeof oldVNode === "object" && newVNode.tag === oldVNode.tag) {
     // UPDATE: Same tag, update props and children.
     if (!child) return;
-    
+
+    // Guard: native DOM node (e.g. a stray TextNode) — sync text and bail, no VNode children to recurse.
+    if ((newVNode as any).nodeType !== undefined) {
+      if ((newVNode as any).nodeType === 3 && child.nodeType === 3) {
+        const newText = (newVNode as any).data ?? "";
+        if ((child as any).data !== newText) (child as any).data = newText;
+      }
+      return;
+    }
+
     const el = child as HTMLElement;
     newVNode.el = el;
     updateProps(el, newVNode.props, oldVNode.props);
@@ -90,7 +99,7 @@ export function patch(parentEl: HTMLElement, newVNode: VNode | string | null, ol
     // We iterate backwards when removing children to avoid index shifting issues,
     // but a simpler approach for basic patching is forward iteration, then trim.
     for (let i = 0; i < max; i++) {
-      patch(el, newVNode.children[i], oldVNode.children[i], i);
+      patch(el, newVNode.children[i] ?? null, oldVNode.children[i] ?? null, i);
     }
     
     // Trim excess children if old length was greater
@@ -125,7 +134,16 @@ function createDOMNode(vnode: VNode | string): Node {
 function changed(node1: VNode | string, node2: VNode | string): boolean {
   if (typeof node1 !== typeof node2) return true;
   if (typeof node1 === "string" && node1 !== node2) return true;
-  if (typeof node1 === "object" && typeof node2 === "object" && node1.tag !== node2.tag) return true;
+  if (typeof node1 === "object" && typeof node2 === "object") {
+    const nt1 = (node1 as any).nodeType;
+    const nt2 = (node2 as any).nodeType;
+    if (nt1 !== undefined || nt2 !== undefined) {
+      if (nt1 !== nt2) return true;
+      if (nt1 === 3) return (node1 as any).data !== (node2 as any).data;
+      return false;
+    }
+    if (node1.tag !== node2.tag) return true;
+  }
   return false;
 }
 
