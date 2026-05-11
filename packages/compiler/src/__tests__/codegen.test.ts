@@ -361,36 +361,35 @@ enum class Color { RED, GREEN, BLUE }`);
   });
 });
 
-describe("Codegen — JSX", () => {
-  it("emits JSX element", () => {
+describe("Codegen — UI Primitives", () => {
+  it("emits UI primitive element", () => {
     const code = gen(`
 component fun Hello() {
   return (<div class="hello">Hi</div>)
 }`);
-    expect(code).toContain("<div");
-    expect(code).toContain("className");
+    expect(code).toContain('jalvinCreateElement("div", { className: "hello" }, [document.createTextNode("Hi")])');
   });
 
-  it("emits JSX self-closing element", () => {
+  it("emits UI primitive self-closing element", () => {
     const code = gen(`
 component fun Hr() {
   return (<hr />)
 }`);
-    expect(code).toContain("<hr");
+    expect(code).toContain('jalvinCreateElement("hr", {}, [])');
   });
 
   it("maps class attribute to className", () => {
     const code = gen(`component fun F() { return (<div class="x" />) }`);
-    expect(code).toContain("className");
+    expect(code).toContain("className:");
     expect(code).not.toContain(' class=');
   });
 
   it("maps for attribute to htmlFor", () => {
     const code = gen(`component fun F() { return (<label for="x" />) }`);
-    expect(code).toContain("htmlFor");
+    expect(code).toContain("htmlFor:");
   });
 
-  it("emits component function as React FC", () => {
+  it("emits component function", () => {
     const code = gen(`component fun Button(label: String) { return (<button>{label}</button>) }`);
     expect(code).toContain("export function Button");
     // Return type is no longer hardcoded to HTMLElement — TypeScript infers it
@@ -402,21 +401,21 @@ component fun Hr() {
     expect(code).not.toContain("HTMLElement");
   });
 
-  it("emits children inside the props destructure when in JSX mode", () => {
+  it("emits children as a separate parameter (not in props)", () => {
     const code = gen(`component fun DocPage(title: String, children: Any) { return (<div />) }`);
-    // children MUST appear inside the props destructure in JSX mode
-    expect(code).toMatch(/\{\s*[^}]*title[^}]*,\s*children[^}]*\}\s*:\s*DocPageProps/);
+    // children MUST appear as a separate parameter in functional mode
+    expect(code).toMatch(/function DocPage\(\{\s*title\s*\}\s*:\s*DocPageProps,\s*children\?\s*:\s*any\)/);
   });
 
-  it("includes children in the Props interface when in JSX mode", () => {
+  it("does NOT include children in the Props interface", () => {
     const code = gen(`component fun DocPage(title: String, children: Any) { return (<div />) }`);
-    // Props interface should contain a children field
+    // Props interface should NOT contain a children field
     const propsBlock = code.match(/interface DocPageProps \{[^}]*\}/)?.[0] ?? "";
-    expect(propsBlock).toContain("children");
+    expect(propsBlock).not.toContain("children");
     expect(propsBlock).toContain("title");
   });
 
-  it("call site uses React.createElement for user components", () => {
+  it("call site uses direct function call for user components", () => {
     const code = gen(`
       import @jalvin/ui.Column
       import @jalvin/ui.Text
@@ -427,16 +426,16 @@ component fun Hr() {
         return DocPage(title = "Hello") { Text(text = "hi") }
       }
     `);
-    // Call site: uses React.createElement for the user component DocPage
-    expect(code).toContain(`React.createElement(DocPage, { title: "Hello" }, [`);
+    // Call site: uses direct function call
+    expect(code).toContain('DocPage({ title: "Hello" }, [Text({ text: "hi" })])');
   });
 
-  it("children-only component emits props destructure for children", () => {
+  it("children-only component emits empty props and children param", () => {
     const code = gen(`component fun DocTheme(children: Any) { return (<div />) }`);
-    expect(code).toMatch(/function DocTheme\(\{\s*children\s*\}\s*:\s*DocThemeProps\)/);
+    expect(code).toMatch(/function DocTheme\(\{\},\s*children\?\s*:\s*any\)/);
   });
 
-  it("children-only component call site uses React.createElement", () => {
+  it("children-only component call site uses direct call", () => {
     const code = gen(`
       import @jalvin/ui.Text
       component fun DocTheme(children: Any) { return (<div />) }
@@ -444,7 +443,7 @@ component fun Hr() {
         return DocTheme() { Text(text = "hi") }
       }
     `);
-    expect(code).toContain(`React.createElement(DocTheme, {}, [`);
+    expect(code).toContain("DocTheme({}, [Text({ text: \"hi\" })])");
   });
 });
 
@@ -512,7 +511,7 @@ describe("Codegen — local wildcard imports", () => {
     expect(result.code).toContain("import { Footer, Header }");
     expect(result.code).not.toContain("import * as");
     // Header call should be emitted as a component call
-    expect(result.code).toContain(`React.createElement(Header, { title: "Hi" })`)
+    expect(result.code).toContain(`Header({ title: "Hi" })`)
   });
 });
 
@@ -877,8 +876,8 @@ component fun CubeControlsView(vm: Any) {
   MoveCounter(vm)
 }`;
       const result = compile(src, "<test>", { sourceRoot: tmpDir });
-      // Positional arg 'vm' should be wrapped into a props object: React.createElement(MoveCounter, { vm })
-      expect(result.code).toContain("React.createElement(MoveCounter, { vm })");
+      // Positional arg 'vm' should be wrapped into a props object: MoveCounter({ vm })
+      expect(result.code).toContain("MoveCounter({ vm })");
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -926,8 +925,8 @@ component fun CubeControlsView(vm: Any) {
   MoveCounter(vm)
 }`;
       const result = compile(src, "<test>", { sourceRoot: tmpDir });
-      // Param name is 'viewModel' from the component definition, so React.createElement(MoveCounter, { viewModel: vm })
-      expect(result.code).toContain("React.createElement(MoveCounter, { viewModel: vm })");
+      // Param name is 'viewModel' from the component definition, so MoveCounter({ viewModel: vm })
+      expect(result.code).toContain("MoveCounter({ viewModel: vm })");
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -977,32 +976,6 @@ describe("Codegen — property getter no backing-field collision (Bug: duplicate
   it("emits the getter when a property has a custom getter", () => {
     const code = gen(`class Widget { val label: String get() { return "custom" } }`);
     expect(code).toMatch(/\bget label\b/);
-  });
-});
-
-// Bug 3: generate() always returns isJsx: false
-describe("Codegen — isJsx flag (Bug: hardcoded false)", () => {
-  it("returns isJsx: true for a file containing a component fun", () => {
-    const result = compile(`component fun App() { }`, "<test>");
-    expect(result.isJsx).toBe(true);
-  });
-
-  it("returns isJsx: true when @jalvin/ui is imported", () => {
-    const result = compile(`import @jalvin/ui.*\nfun f() { }`, "<test>");
-    expect(result.isJsx).toBe(true);
-  });
-
-  it("returns isJsx: false for a plain file with no component fun and no @jalvin/ui import", () => {
-    const result = compile(`fun add(a: Int, b: Int): Int = a + b`, "<test>");
-    expect(result.isJsx).toBe(false);
-  });
-
-  it("returns isJsx: true when a component fun is nested inside a class", () => {
-    const result = compile(`
-class MyWidget {
-  component fun render() { }
-}`, "<test>");
-    expect(result.isJsx).toBe(true);
   });
 });
 

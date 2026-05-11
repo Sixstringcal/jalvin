@@ -1,0 +1,4 @@
+import @jalvin/runtime.println
+component fun App() {
+  println("Hello")
+}

@@ -33,7 +33,7 @@ const VIRTUAL_ENTRY_RESOLVED = "\0virtual:@jalvin/app-entry";
 export interface JalvinAppEntry {
   /** Path to the root .jalvin file, relative to the Vite project root. */
   file: string;
-  /** Name of the component to mount as the React root. */
+  /** Name of the component to mount as the DOM root. */
   component: string;
   /** Optional page title for the generated HTML. */
   title?: string;
@@ -56,8 +56,8 @@ export interface JalvinViteOptions {
    */
   runtimeImport?: string;
   /**
-   * When set, the plugin generates a virtual index.html and React entry point
-   * so no hand-written index.html or main.tsx is needed in the project.
+   * When set, the plugin generates a virtual index.html and entry point
+   * so no hand-written index.html or main.ts is needed in the project.
    */
   entry?: JalvinAppEntry;
 }
@@ -91,67 +91,64 @@ function generateIndexHtml(title: string, scriptSrc: string): string {
 </html>`;
 }
 
-function generateEntryModule(entryFilePath: string, component: string): string {
-  // Use React.createElement to avoid needing JSX in the virtual module itself.
+function generateEntryModule(entryFilePath: string, component: string, runtimeImport: string): string {
+  const buildId = Date.now();
   return [
-    `import React from "react";`,
-    `import ReactDOM from "react-dom/client";`,
-    `import { WindowSizeClassProvider } from "@jalvin/runtime";`,
-    ``,
+    `console.log("JALVIN APP-ENTRY LOADED - BUILD ${buildId}");`,
+    `// React Trap`,
+    `window.React = {`,
+    `  createElement: (type, props, ...children) => {`,
+    `    console.error("[TRAP] React.createElement called for:", type, "Props:", props);`,
+    `    console.trace();`,
+    `    // If it's one of our components, just call it directly to bypass the React wrapper`,
+    `    if (typeof type === "function") return type(props, children);`,
+    `    return { $$typeof: Symbol.for("react.transitional.element"), type, props, children };`,
+    `  }`,
+    `};`,
+    `import { render } from ${JSON.stringify(runtimeImport)};`,
     `const rootEl = document.getElementById("root");`,
     `if (!rootEl) throw new Error("Missing #root element");`,
-    `const root = ReactDOM.createRoot(rootEl);`,
     ``,
     `function showError(err) {`,
-    `  root.render(`,
-    `    React.createElement(`,
-    `      "div",`,
-    `      {`,
-    `        style: {`,
-    `          fontFamily: "monospace",`,
-    `          padding: "32px",`,
-    `          background: "#1a1a1a",`,
-    `          color: "#ff6b6b",`,
-    `          minHeight: "100vh",`,
-    `          boxSizing: "border-box",`,
-    `        },`,
-    `      },`,
-    `      React.createElement(`,
-    `        "h2",`,
-    `        { style: { margin: "0 0 16px", fontSize: "18px", color: "#ff4444" } },`,
-    `        "\u26a0\ufe0f Jalvin App Error"`,
-    `      ),`,
-    `      React.createElement(`,
-    `        "pre",`,
-    `        {`,
-    `          style: {`,
-    `            whiteSpace: "pre-wrap",`,
-    `            wordBreak: "break-word",`,
-    `            background: "#111",`,
-    `            padding: "16px",`,
-    `            borderRadius: "6px",`,
-    `            color: "#ff9898",`,
-    `            fontSize: "13px",`,
-    `          },`,
-    `        },`,
-    `        String(err?.stack ?? err)`,
-    `      )`,
-    `    )`,
-    `  );`,
+    `  rootEl.innerHTML = "";`,
+    `  const container = document.createElement("div");`,
+    `  container.style.fontFamily = "monospace";`,
+    `  container.style.padding = "32px";`,
+    `  container.style.background = "#1a1a1a";`,
+    `  container.style.color = "#ff6b6b";`,
+    `  container.style.minHeight = "100vh";`,
+    `  container.style.boxSizing = "border-box";`,
+    ``,
+    `  const heading = document.createElement("h2");`,
+    `  heading.style.margin = "0 0 16px";`,
+    `  heading.style.fontSize = "18px";`,
+    `  heading.style.color = "#ff4444";`,
+    `  heading.innerText = "\u26a0\ufe0f Jalvin App Error";`,
+    `  container.appendChild(heading);`,
+    ``,
+    `  const pre = document.createElement("pre");`,
+    `  pre.style.whiteSpace = "pre-wrap";`,
+    `  pre.style.wordBreak = "break-word";`,
+    `  pre.style.background = "#111";`,
+    `  pre.style.padding = "16px";`,
+    `  pre.style.borderRadius = "6px";`,
+    `  pre.style.color = "#ff9898";`,
+    `  pre.style.fontSize = "13px";`,
+    `  pre.innerText = String(err?.stack ?? err);`,
+    `  container.appendChild(pre);`,
+    ``,
+    `  rootEl.appendChild(container);`,
     `}`,
     ``,
     `window.addEventListener('unhandledrejection', e => showError(e.reason));`,
     `window.addEventListener('error', e => showError(e.error ?? e.message));`,
     ``,
     `try {`,
-    `  const { ${component} } = await import(${JSON.stringify(entryFilePath)});`,
-    `  root.render(`,
-    `    React.createElement(React.StrictMode, null,`,
-    `      React.createElement(WindowSizeClassProvider, null,`,
-    `        React.createElement(${component})`,
-    `      )`,
-    `    )`,
-    `  );`,
+    `  const mod = await import(${JSON.stringify(entryFilePath)});`,
+    `  const App = mod.${component};`,
+    `  if (typeof App !== "function") throw new Error("Component ${component} not found in " + ${JSON.stringify(entryFilePath)});`,
+    `  console.log("JALVIN MOUNTING ROOT COMPONENT:", App.name);`,
+    `  render(App, rootEl);`,
     `} catch (err) {`,
     `  showError(err);`,
     `}`,
@@ -174,20 +171,14 @@ export function jalvin(opts: JalvinViteOptions = {}): any {
     },
 
     config(cfg: any, { command }: { command: string }) {
-      // Ensure @jalvin/runtime (CJS) is pre-bundled by Vite's esbuild so the
-      // browser receives a proper ES module instead of bare CommonJS.
       cfg.optimizeDeps = cfg.optimizeDeps ?? {};
-      const include: string[] = cfg.optimizeDeps.include ?? [];
-      if (!include.includes("@jalvin/runtime")) include.push("@jalvin/runtime");
-      cfg.optimizeDeps.include = include;
+      cfg.optimizeDeps.exclude = cfg.optimizeDeps.exclude ?? [];
+      if (!cfg.optimizeDeps.exclude.includes("@jalvin/runtime")) cfg.optimizeDeps.exclude.push("@jalvin/runtime");
+      if (!cfg.optimizeDeps.exclude.includes("@jalvin/ui")) cfg.optimizeDeps.exclude.push("@jalvin/ui");
 
-      // Exclude @jalvin/ui from pre-bundling — it ships as native ESM so
-      // Vite can serve it directly from node_modules. Pre-bundling it creates
-      // a content-addressed cached bundle that goes stale when the package is
-      // updated but the lockfile hash hasn't changed.
-      const exclude: string[] = cfg.optimizeDeps.exclude ?? [];
-      if (!exclude.includes("@jalvin/ui")) exclude.push("@jalvin/ui");
-      cfg.optimizeDeps.exclude = exclude;
+      cfg.esbuild = cfg.esbuild ?? {};
+      cfg.esbuild.jsxFactory = "jalvinCreateElement";
+      cfg.esbuild.jsxFragment = "Fragment";
 
       if (!opts.entry) return;
       if (command === "build") {
@@ -208,7 +199,8 @@ export function jalvin(opts: JalvinViteOptions = {}): any {
       if (id !== VIRTUAL_ENTRY_RESOLVED || !opts.entry) return null;
       const root = viteConfig?.root ?? process.cwd();
       const entryFilePath = path.resolve(root, opts.entry.file);
-      return generateEntryModule(entryFilePath, opts.entry.component);
+      const runtimeImport = opts.runtimeImport ?? "@jalvin/runtime";
+      return generateEntryModule(entryFilePath, opts.entry.component, runtimeImport);
     },
 
     async transform(code: string, id: string) {
@@ -232,7 +224,6 @@ export function jalvin(opts: JalvinViteOptions = {}): any {
         return null;
       }
 
-      // Surface warnings through Vite
       for (const diag of result.diagnostics.items) {
         if (diag.severity === "warning") {
           this.warn({
@@ -242,27 +233,21 @@ export function jalvin(opts: JalvinViteOptions = {}): any {
         }
       }
 
-      // The compiled output is TSX with JSX syntax. We need to transform
-      // JSX → JS here because Vite's React plugin only handles .tsx/.jsx files.
-      // Use a dynamic import to work around vite's deprecated CJS type stub.
       const { transformWithEsbuild } = await (import("vite") as Promise<any>);
-      const tsxResult = await transformWithEsbuild(result.code, id + ".tsx", {
-        jsx: "automatic",
-        loader: "tsx",
+      const tsResult = await transformWithEsbuild(result.code, id + ".ts", {
+        loader: "ts",
         target: "esnext",
+        jsx: "preserve",
       });
 
       return {
-        code: tsxResult.code,
-        map: tsxResult.map,
+        code: tsResult.code,
+        map: tsResult.map,
       };
     },
 
     configureServer(server: any) {
       if (!opts.entry) return;
-      // Return a post-hook (runs after Vite's own middlewares).
-      // When no static index.html exists, Vite passes requests for "/" through,
-      // so this middleware catches them and serves the generated HTML.
       return () => {
         server.middlewares.use(async (req: any, res: any, next: () => void) => {
           const url: string = req.url ?? "/";
@@ -271,7 +256,6 @@ export function jalvin(opts: JalvinViteOptions = {}): any {
             return;
           }
           const root: string = viteConfig?.root ?? process.cwd();
-          // If a static index.html already exists, let Vite handle it normally.
           if (fs.existsSync(path.join(root, "index.html"))) {
             next();
             return;
@@ -287,7 +271,6 @@ export function jalvin(opts: JalvinViteOptions = {}): any {
 
     generateBundle(_: any, bundle: Record<string, any>) {
       if (!opts.entry) return;
-      // Find the entry chunk to reference in the emitted HTML.
       const entryChunk = Object.values(bundle).find(
         (c: any) => c.type === "chunk" && c.isEntry
       ) as any | undefined;
@@ -299,7 +282,6 @@ export function jalvin(opts: JalvinViteOptions = {}): any {
 
     handleHotUpdate({ file, server }: { file: string; server: any }) {
       if (!isJalvinFile(file)) return;
-      // Force full reload for now — incremental recompile is straightforward
       server.ws.send({ type: "full-reload", path: file });
       return [];
     },

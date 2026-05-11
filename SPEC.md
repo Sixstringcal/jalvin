@@ -5,7 +5,7 @@ Version 1.0 — Working Draft
 
 ## 1 Overview
 
-Jalvin is a statically-typed, multi-platform programming language that compiles to TypeScript/TSX today and to native code (LLVM/JVM) in a future tier. It runs on the web, Android, iOS, Wear OS, CarPlay, and any JavaScript-capable environment.
+Jalvin is a statically-typed, multi-platform programming language that compiles to TypeScript today and to native code (LLVM/JVM) in a future tier. It runs on the web, Android, iOS, Wear OS, CarPlay, and any JavaScript-capable environment.
 
 Design goals:
 - First-class UI with `component fun` (no annotations).
@@ -22,7 +22,7 @@ Design goals:
 |---------|-------|
 | Source extension | `.jalvin` |
 | Project config | `JALVIN` (no extension, all caps, at project root) |
-| Compiled output | `.ts` or `.tsx` (JSX files) |
+| Compiled output | .ts (Vanilla DOM) |
 
 ---
 
@@ -166,7 +166,7 @@ component fun Greeting(name: String) {
 }
 ```
 
-Compiles to a React functional component. The component receives a typed props interface automatically generated from its parameters.
+Compiles to a standard functional component that returns an `HTMLElement`. The component receives a typed props interface automatically generated from its parameters.
 
 ### 5.3 Properties
 
@@ -640,14 +640,14 @@ class AppViewModel : ViewModel() {
 }
 ```
 
-### 10.3 Component hooks (React targets)
+### 10.3 Component hooks
 
 ```
-mutableStateOf(initial)          // useState wrapper returning MutableState<T>
-remember { compute() }           // useMemo wrapper
+mutableStateOf(initial)          // reactive state slot — triggers re-render on change
+remember { compute() }           // cached value — recomputed only when deps change
 collectAsState(flow)             // subscribe to StateFlow, triggers re-render
 useViewModel("key") { MyVm() }  // get/create ViewModel for component lifecycle
-LaunchedEffect(deps) { ... }    // useEffect with suspend body
+LaunchedEffect(deps) { ... }    // side effect with suspend body, runs after render
 DisposableEffect(deps) { cleanup }
 SideEffect { ... }
 ```
@@ -691,7 +691,6 @@ name        = my-app
 version     = 1.0.0
 rootDir     = src
 outDir      = dist
-jsx         = true
 emitTypes   = false
 ```
 

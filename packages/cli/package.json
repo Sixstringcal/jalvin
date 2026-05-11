@@ -1,7 +1,8 @@
 {
   "name": "@jalvin/cli",
-  "version": "2.0.38",
+  "version": "2.0.40",
   "description": "Jalvin language — command line interface",
+  "type": "module",
   "bin": {
     "jalvin": "dist/cli.js"
   },
@@ -10,12 +11,13 @@
   "publishConfig": { "access": "public" },
   "files": ["dist"],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node -e \"const fs=require('fs'),f='dist/cli.js';fs.writeFileSync(f,'#!/usr/bin/env node\\n'+fs.readFileSync(f,'utf8'))\" && chmod +x dist/cli.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@jalvin/compiler": "^2.0.38"
+    "@jalvin/compiler": "2.0.40",
+    "vite": "^5.0.0"
   },
   "devDependencies": {
     "typescript": "^5.4.0",

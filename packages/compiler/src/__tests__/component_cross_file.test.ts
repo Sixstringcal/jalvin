@@ -6,7 +6,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 
 describe("Cross-file Component Detection", () => {
-  it("should recognize component fun from another file and use React.createElement", () => {
+  it("should recognize component fun from another file and use functional call", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jalvin-test-"));
     const otherFile = path.join(tmpDir, "Other.jalvin");
     const otherCode = `
@@ -29,13 +29,13 @@ component fun App(cond: Boolean) {
       // Use tmpDir as sourceRoot so compiler can find Other.jalvin
       const result = compile(code, path.join(tmpDir, "App.jalvin"), { sourceRoot: tmpDir });
       
-      expect(result.code).toContain("React.createElement(OtherComp, {})");
+      expect(result.code).toContain("OtherComp({})");
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 
-  it("should recognize component fun from a star import and use React.createElement", () => {
+  it("should recognize component fun from a star import and use functional call", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jalvin-test-star-"));
     const otherFile = path.join(tmpDir, "Other.jalvin");
     const otherCode = `
@@ -57,13 +57,13 @@ component fun App(cond: Boolean) {
 `;
       const result = compile(code, path.join(tmpDir, "App.jalvin"), { sourceRoot: tmpDir });
       
-      expect(result.code).toContain("React.createElement(OtherComp, {})");
+      expect(result.code).toContain("OtherComp({})");
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 
-  it("should recognize component fun called via qualified name and use React.createElement", () => {
+  it("should recognize component fun called via qualified name and use functional call", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jalvin-test-qualified-"));
     const otherFile = path.join(tmpDir, "Other.jalvin");
     const otherCode = `
@@ -81,13 +81,13 @@ component fun App() {
 `;
       const result = compile(code, path.join(tmpDir, "App.jalvin"), { sourceRoot: tmpDir });
       
-      expect(result.code).toContain("React.createElement(Other.OtherComp, {})");
+      expect(result.code).toContain("Other.OtherComp({})");
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 
-  it("should recognize member component fun from imported class and use React.createElement", () => {
+  it("should recognize member component fun from imported class and use functional call", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jalvin-test-member-imported-"));
     const otherFile = path.join(tmpDir, "Views.jalvin");
     const otherCode = `
@@ -108,7 +108,7 @@ component fun App() {
 `;
       const result = compile(code, path.join(tmpDir, "App.jalvin"), { sourceRoot: tmpDir });
       
-      expect(result.code).toContain("React.createElement(v.SubComp, {})");
+      expect(result.code).toContain("v.SubComp({})");
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

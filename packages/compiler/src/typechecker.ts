@@ -223,12 +223,10 @@ class TypeEnv {
     // State & MVVM
     this.sym("mutableStateOf", { tag: "func", params: [T_UNKNOWN], paramNames: ["value"], ret: classType("MutableState", [T_UNKNOWN]), suspend: false });
     this.sym("remember", { tag: "func", params: [{ tag: "func", params: [], ret: T_UNKNOWN, suspend: false }], paramNames: ["calculation"], ret: T_UNKNOWN, suspend: false });
-    this.sym("useViewModel", { tag: "func", params: [T_STRING, { tag: "func", params: [], ret: T_UNKNOWN, suspend: false }], paramNames: ["key", "factory"], ret: classType("ViewModel"), suspend: false });
-    // Keep old `viewModel` alias for source compat
     this.sym("viewModel", { tag: "func", params: [], ret: classType("ViewModel"), suspend: false });
     this.sym("collectAsState", { tag: "func", params: [T_UNKNOWN], paramNames: ["flow"], ret: T_UNKNOWN, suspend: false });
 
-    // React effect hooks
+    // UI effect hooks
     const effectDepsType = classType("List", [T_UNKNOWN]);
     this.sym("LaunchedEffect", { tag: "func", params: [effectDepsType, { tag: "func", params: [], ret: T_UNIT, suspend: true }], paramNames: ["deps", "block"], ret: T_UNIT, suspend: false });
     this.sym("DisposableEffect", { tag: "func", params: [effectDepsType, { tag: "func", params: [], ret: T_UNIT, suspend: false }], paramNames: ["deps", "block"], ret: T_UNIT, suspend: false });

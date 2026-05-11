@@ -60,6 +60,11 @@ export class Pair<A, B> {
   toString(): string { return `(${this.first}, ${this.second})`; }
 }
 
+/** Extension: `A.to(B)` → `new Pair(A, B)` */
+export function to<A, B>(first: A, second: B): Pair<A, B> {
+  return new Pair(first, second);
+}
+
 export class Triple<A, B, C> {
   constructor(readonly first: A, readonly second: B, readonly third: C) { }
 

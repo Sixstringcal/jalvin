@@ -9,7 +9,7 @@
 //   Modifier.fillMaxWidth().padding(16).background(Color.Surface)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// DOM-compatible CSS properties — mirrors React's CSSProperties but has no React dependency.
+// DOM-compatible CSS properties.
 export type CSSProperties = { [key: string]: string | number | undefined };
 
 import type { MutableInteractionSource } from "./interaction.js";

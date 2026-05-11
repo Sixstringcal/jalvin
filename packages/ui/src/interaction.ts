@@ -12,7 +12,8 @@
 //   Box({ modifier: Modifier.hoverable(source).pressable(source) }) { ... }
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState, useEffect, useRef } from "react";
+import { mutableStateOf, remember } from "@jalvin/runtime";
+import type { MutableState } from "@jalvin/runtime";
 
 // ── Interaction types ────────────────────────────────────────────────────────
 
@@ -72,7 +73,7 @@ export interface InteractionSource {
  * so a single source describes the full interaction state of the element.
  */
 export class MutableInteractionSource implements InteractionSource {
-  private _interactions: ReadonlyArray<Interaction> = [];
+  private _interactions: MutableState<ReadonlyArray<Interaction>> = mutableStateOf([]);
   private readonly _listeners = new Set<() => void>();
 
   // ── active interaction tracking ─────────────────────────────────────────
@@ -83,7 +84,7 @@ export class MutableInteractionSource implements InteractionSource {
   // ── InteractionSource ────────────────────────────────────────────────────
 
   getInteractions(): ReadonlyArray<Interaction> {
-    return this._interactions;
+    return this._interactions.value;
   }
 
   subscribe(listener: () => void): () => void {
@@ -188,9 +189,9 @@ export class MutableInteractionSource implements InteractionSource {
         interaction.type === "hover.exit"    ? interaction.enter :
         interaction.type === "focus.unfocus" ? interaction.focus :
                                                interaction.press;
-      this._interactions = this._interactions.filter(i => i !== paired);
+      this._interactions.value = this._interactions.value.filter(i => i !== paired);
     } else {
-      this._interactions = [...this._interactions, interaction];
+      this._interactions.value = [...this._interactions.value, interaction];
     }
     this._listeners.forEach(l => l());
   }
@@ -203,9 +204,7 @@ export class MutableInteractionSource implements InteractionSource {
  * of the component. Equivalent to `remember { MutableInteractionSource() }`.
  */
 export function useMutableInteractionSource(): MutableInteractionSource {
-  const ref = useRef<MutableInteractionSource | null>(null);
-  if (ref.current === null) ref.current = new MutableInteractionSource();
-  return ref.current;
+  return remember(() => new MutableInteractionSource());
 }
 
 /**
@@ -213,32 +212,14 @@ export function useMutableInteractionSource(): MutableInteractionSource {
  * attached to `source` via `Modifier.hoverable(source)`.
  */
 export function useIsHovered(source: InteractionSource): boolean {
-  const [val, setVal] = useState(() =>
-    source.getInteractions().some(i => i.type === "hover.enter")
-  );
-  useEffect(() => {
-    setVal(source.getInteractions().some(i => i.type === "hover.enter"));
-    return source.subscribe(() =>
-      setVal(source.getInteractions().some(i => i.type === "hover.enter"))
-    );
-  }, [source]);
-  return val;
+  return source.getInteractions().some(i => i.type === "hover.enter");
 }
 
 /**
  * Returns `true` while the component attached to `source` has keyboard focus.
  */
 export function useIsFocused(source: InteractionSource): boolean {
-  const [val, setVal] = useState(() =>
-    source.getInteractions().some(i => i.type === "focus.focus")
-  );
-  useEffect(() => {
-    setVal(source.getInteractions().some(i => i.type === "focus.focus"));
-    return source.subscribe(() =>
-      setVal(source.getInteractions().some(i => i.type === "focus.focus"))
-    );
-  }, [source]);
-  return val;
+  return source.getInteractions().some(i => i.type === "focus.focus");
 }
 
 /**
@@ -246,14 +227,5 @@ export function useIsFocused(source: InteractionSource): boolean {
  * `source` via `Modifier.pressable(source)`.
  */
 export function useIsPressed(source: InteractionSource): boolean {
-  const [val, setVal] = useState(() =>
-    source.getInteractions().some(i => i.type === "press.press")
-  );
-  useEffect(() => {
-    setVal(source.getInteractions().some(i => i.type === "press.press"));
-    return source.subscribe(() =>
-      setVal(source.getInteractions().some(i => i.type === "press.press"))
-    );
-  }, [source]);
-  return val;
+  return source.getInteractions().some(i => i.type === "press.press");
 }
