@@ -11,7 +11,7 @@
   "publishConfig": { "access": "public" },
   "files": ["dist"],
   "scripts": {
-    "build": "tsc -p tsconfig.json && sed -i '' '1s/^/#!\\/usr\\/bin\\/env node\\n/' dist/cli.js && chmod +x dist/cli.js",
+    "build": "tsc -p tsconfig.json && node -e \"const fs=require('fs'),f='dist/cli.js';fs.writeFileSync(f,'#!/usr/bin/env node\\n'+fs.readFileSync(f,'utf8'))\" && chmod +x dist/cli.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rm -rf dist"
   },
