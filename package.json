@@ -12,7 +12,8 @@
     "lint": "pnpm -r lint",
     "clean": "pnpm -r clean",
     "typecheck": "pnpm -r typecheck",
-    "prepublish": "node scripts/validate-no-workspace-refs.js"
+    "prepublish": "node scripts/validate-no-workspace-refs.js",
+    "publish": "pnpm -r publish --no-git-checks --filter \"@jalvin/*\""
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
