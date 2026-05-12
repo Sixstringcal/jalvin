@@ -202,6 +202,8 @@ async function runBuild(args: CliArgs): Promise<void> {
 
     fs.mkdirSync(path.dirname(outFile), { recursive: true });
     fs.writeFileSync(outFile, result.code, "utf8");
+    const legacyTsx = outFile.replace(/\.ts$/, ".tsx");
+    if (legacyTsx !== outFile && fs.existsSync(legacyTsx)) fs.rmSync(legacyTsx);
 
     if (args.verbose) {
       console.log(`${colorize(args.color, C.green, "compiled")} ${file} → ${outFile}`);

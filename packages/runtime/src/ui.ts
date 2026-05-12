@@ -30,7 +30,6 @@ class StateHolder<T> {
 
   set value(next: T) {
     if (!Object.is(this._value, next)) {
-      console.log(`[State ${this.id}] Value changing:`, this._value, "->", next, "| Notifying", this.subscribers.size, "subscribers");
       this._value = next;
       this.notify();
     }
@@ -199,7 +198,6 @@ export function render(rootComponent: () => VNode, container: HTMLElement): void
 
   const update = () => {
     renderCount++;
-    console.log(`[RENDER] Cycle ${renderCount} starting...`);
     activeSubscriber = update;
     resetHooks();
     
@@ -225,7 +223,6 @@ export function render(rootComponent: () => VNode, container: HTMLElement): void
     }
     
     activeSubscriber = null;
-    console.log(`[RENDER] Cycle ${renderCount} finished.`);
   };
 
   update();

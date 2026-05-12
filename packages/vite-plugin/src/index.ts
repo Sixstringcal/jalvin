@@ -92,19 +92,7 @@ function generateIndexHtml(title: string, scriptSrc: string): string {
 }
 
 function generateEntryModule(entryFilePath: string, component: string, runtimeImport: string): string {
-  const buildId = Date.now();
   return [
-    `console.log("JALVIN APP-ENTRY LOADED - BUILD ${buildId}");`,
-    `// React Trap`,
-    `window.React = {`,
-    `  createElement: (type, props, ...children) => {`,
-    `    console.error("[TRAP] React.createElement called for:", type, "Props:", props);`,
-    `    console.trace();`,
-    `    // If it's one of our components, just call it directly to bypass the React wrapper`,
-    `    if (typeof type === "function") return type(props, children);`,
-    `    return { $$typeof: Symbol.for("react.transitional.element"), type, props, children };`,
-    `  }`,
-    `};`,
     `import { render } from ${JSON.stringify(runtimeImport)};`,
     `const rootEl = document.getElementById("root");`,
     `if (!rootEl) throw new Error("Missing #root element");`,
@@ -147,7 +135,6 @@ function generateEntryModule(entryFilePath: string, component: string, runtimeIm
     `  const mod = await import(${JSON.stringify(entryFilePath)});`,
     `  const App = mod.${component};`,
     `  if (typeof App !== "function") throw new Error("Component ${component} not found in " + ${JSON.stringify(entryFilePath)});`,
-    `  console.log("JALVIN MOUNTING ROOT COMPONENT:", App.name);`,
     `  render(App, rootEl);`,
     `} catch (err) {`,
     `  showError(err);`,
@@ -179,6 +166,13 @@ export function jalvin(opts: JalvinViteOptions = {}): any {
       cfg.esbuild = cfg.esbuild ?? {};
       cfg.esbuild.jsxFactory = "jalvinCreateElement";
       cfg.esbuild.jsxFragment = "Fragment";
+
+      // Force a single runtime instance across all symlinked packages.
+      cfg.resolve = cfg.resolve ?? {};
+      cfg.resolve.dedupe = cfg.resolve.dedupe ?? [];
+      for (const pkg of ["@jalvin/runtime", "@jalvin/ui"]) {
+        if (!cfg.resolve.dedupe.includes(pkg)) cfg.resolve.dedupe.push(pkg);
+      }
 
       if (!opts.entry) return;
       if (command === "build") {
