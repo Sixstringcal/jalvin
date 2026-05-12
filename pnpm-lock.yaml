@@ -43,8 +43,8 @@ importers:
   packages/cli:
     dependencies:
       '@jalvin/compiler':
-        specifier: 2.0.40
-        version: 2.0.40
+        specifier: 2.0.42
+        version: 2.0.42
       vite:
         specifier: ^5.0.0
         version: 5.4.21(@types/node@20.19.40)(terser@5.47.1)
@@ -89,8 +89,8 @@ importers:
   packages/ui:
     devDependencies:
       '@jalvin/runtime':
-        specifier: 2.0.40
-        version: 2.0.40
+        specifier: 2.0.42
+        version: 2.0.42
       '@testing-library/dom':
         specifier: ^10.4.1
         version: 10.4.1
@@ -113,8 +113,8 @@ importers:
   packages/vite-plugin:
     dependencies:
       '@jalvin/compiler':
-        specifier: 2.0.40
-        version: 2.0.40
+        specifier: 2.0.42
+        version: 2.0.42
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
@@ -146,8 +146,8 @@ importers:
   packages/webpack-plugin:
     dependencies:
       '@jalvin/compiler':
-        specifier: ^2.0.40
-        version: 2.0.40
+        specifier: ^2.0.42
+        version: 2.0.42
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
@@ -409,11 +409,11 @@ packages:
     resolution: {integrity: sha512-+Sg6GCR/wy1oSmQDFq4LQDAhm3ETKnorxN+y5nbLULOR3P0c14f2Wurzj3/xqPXtasLFfHd5iRFQ7AJt4KH2cw==}
     engines: {node: '>=8'}
 
-  '@jalvin/compiler@2.0.40':
-    resolution: {integrity: sha512-vv811P+ReVWLHhNQ1b5S1HgaVxKIAnsKiM2Qr0VYblrix74K4nPlp+KwKyqex9KmuKBI68vx2YXoM4DsBgIfyg==}
+  '@jalvin/compiler@2.0.42':
+    resolution: {integrity: sha512-8VKNXJqes6LJ0Oc71DT5RmqlyF/4T4t9MhP8piELMdxhUEYpO/b7OWD2J/4ZX+b43x7d2kJ8C5ODn7Llcv6WuQ==}
 
-  '@jalvin/runtime@2.0.40':
-    resolution: {integrity: sha512-3m1UzCf68lfBer3RR1a7LS/kKd5LRQk0D4RgW1UvE8PpjMFUt+Lu1mP4kAl2dbhDsFeIobxDD2+3qPJDV7qqAA==}
+  '@jalvin/runtime@2.0.42':
+    resolution: {integrity: sha512-fahcgQQQqG2dmTv1/+FmEEKGUelAOcRIKMz2Knxz4Aic2tH129MP/04vdLetnJyVLOS5+bMvqIKfEyG/RxDiTQ==}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -1606,9 +1606,9 @@ snapshots:
 
   '@istanbuljs/schema@0.1.6': {}
 
-  '@jalvin/compiler@2.0.40': {}
+  '@jalvin/compiler@2.0.42': {}
 
-  '@jalvin/runtime@2.0.40': {}
+  '@jalvin/runtime@2.0.42': {}
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
