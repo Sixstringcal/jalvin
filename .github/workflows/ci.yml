@@ -33,8 +33,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build all packages
-        run: pnpm --filter @jalvin/compiler --filter @jalvin/runtime --filter @jalvin/ui --filter @jalvin/vite-plugin --filter @jalvin/webpack-plugin --filter @jalvin/cli build
+      - name: Build runtime
+        run: pnpm --filter @jalvin/runtime build
+
+      - name: Build remaining packages
+        run: pnpm --filter @jalvin/compiler --filter @jalvin/ui --filter @jalvin/vite-plugin --filter @jalvin/webpack-plugin --filter @jalvin/cli build
 
       - name: Test — compiler
         run: pnpm --filter @jalvin/compiler test

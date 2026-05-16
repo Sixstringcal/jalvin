@@ -79,6 +79,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^2.1.9
         version: 2.1.9(vitest@2.1.9(@types/node@20.19.40)(jsdom@29.1.1)(terser@5.47.1))
+      jsdom:
+        specifier: ^29.1.1
+        version: 29.1.1
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
@@ -89,8 +92,8 @@ importers:
   packages/ui:
     devDependencies:
       '@jalvin/runtime':
-        specifier: 2.0.43
-        version: 2.0.43
+        specifier: 2.0.46
+        version: 2.0.46
       '@testing-library/dom':
         specifier: ^10.4.1
         version: 10.4.1
@@ -412,8 +415,8 @@ packages:
   '@jalvin/compiler@2.0.43':
     resolution: {integrity: sha512-dLS7KkQ4Ty/Lufz/MwDWSm0r5vWk3pGIrbXk7ABn2gLdD5SmOhTTlR2iDLeG2t3Y5YekkpT/bplmcwRgFiryiA==}
 
-  '@jalvin/runtime@2.0.43':
-    resolution: {integrity: sha512-QjzQV5uA9kjG8poSDLa2OEGpXTaxTc4JwuzQwkp8cd25ziBAVxD8OI2lP0ai7QYWTaky7AfWGgYxQuqb5cUEeg==}
+  '@jalvin/runtime@2.0.46':
+    resolution: {integrity: sha512-qShWbdHDDVNMIM3bOc00K62UDirePrSz2IJc+CDy159GtOD9tXfTCRdWd1J/BUSfpmFkjG4X777bSPIbUHYFvg==}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -1608,7 +1611,7 @@ snapshots:
 
   '@jalvin/compiler@2.0.43': {}
 
-  '@jalvin/runtime@2.0.43': {}
+  '@jalvin/runtime@2.0.46': {}
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:

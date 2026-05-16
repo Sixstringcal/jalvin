@@ -143,6 +143,11 @@ function changed(node1: VNode | string, node2: VNode | string): boolean {
       return false;
     }
     if (node1.tag !== node2.tag) return true;
+    // Different keys = different component identity — force full replacement even when tags match.
+    // This handles the case where Box/Column/Row all compile to <div> but represent distinct views.
+    const k1 = node1.props?.key;
+    const k2 = node2.props?.key;
+    if (k1 !== undefined && k2 !== undefined && k1 !== k2) return true;
   }
   return false;
 }
