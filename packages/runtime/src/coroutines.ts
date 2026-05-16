@@ -250,25 +250,20 @@ export async function repeat(times: number, fn: (index: number) => Promise<void>
 }
 
 // ---------------------------------------------------------------------------
-// runBlocking — bridges suspend world into sync (test helper, not for UI)
+// runBlocking — NOT SUPPORTED in JS
 // ---------------------------------------------------------------------------
 
-export function runBlocking<T>(fn: () => Promise<T>): T {
-  let result: T | undefined;
-  let error: unknown;
-  let done = false;
-
-  fn().then((v) => { result = v; done = true; }).catch((e) => { error = e; done = true; });
-
-  // Spin — only safe in Node.js test environments
-  const start = Date.now();
-  while (!done) {
-    if (Date.now() - start > 10_000) throw new Error("runBlocking timeout");
-    // No synchronous spin possible in pure JS — callers should use await
-  }
-
-  if (error !== undefined) throw error;
-  return result as T;
+/**
+ * runBlocking is not implementable in JavaScript: the single-threaded event
+ * loop cannot advance Promise continuations while a synchronous spin is in
+ * progress. This stub throws immediately so callers get a clear error instead
+ * of silently hanging. Use `await` or vitest's async test helpers instead.
+ */
+export function runBlocking<T>(_fn: () => Promise<T>): T {
+  throw new Error(
+    "runBlocking() is not supported in JavaScript. " +
+    "Await the Promise directly or use an async test runner."
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -436,6 +431,10 @@ export class Channel<T> {
 
 export type FlowCollector<T> = (value: T) => Promise<void> | void;
 
+// Sentinel used to abort a producer early (e.g. take(n), first()).
+// We use a unique object so it can be reliably distinguished from real errors.
+const _flowStopSentinel = Object.freeze({ __jalvinFlowStop: true });
+
 /**
  * A cold asynchronous stream. The producer block only runs when `.collect()`
  * is called — each collector gets its own independent execution.
@@ -469,11 +468,20 @@ export class Flow<T> {
   }
 
   take(count: number): Flow<T> {
+    const _FlowStop = _flowStopSentinel;
     return new Flow<T>(async (emit) => {
       let n = 0;
-      await this.collect(async (v) => {
-        if (n++ < count) await emit(v);
-      });
+      try {
+        await this.collect(async (v) => {
+          if (n++ < count) {
+            await emit(v);
+          } else {
+            throw _FlowStop; // stop the producer
+          }
+        });
+      } catch (e) {
+        if (e !== _FlowStop) throw e;
+      }
     });
   }
 
@@ -505,19 +513,26 @@ export class Flow<T> {
 
   async first(): Promise<T> {
     return new Promise<T>((resolve, reject) => {
-      let found = false;
-      this.collect((v) => {
-        if (!found) { found = true; resolve(v); }
-      }).catch(reject);
+      const _FlowStop = _flowStopSentinel;
+      this.collect(async (v) => {
+        resolve(v);
+        throw _FlowStop; // abort the producer after first value
+      }).catch((e) => {
+        if (e !== _FlowStop) reject(e);
+      });
     });
   }
 
   async firstOrNull(): Promise<T | null> {
     return new Promise<T | null>((resolve) => {
       let found = false;
-      this.collect((v) => {
-        if (!found) { found = true; resolve(v); }
-      }).then(() => { if (!found) resolve(null); }).catch(() => resolve(null));
+      const _FlowStop = _flowStopSentinel;
+      this.collect(async (v) => {
+        found = true;
+        resolve(v);
+        throw _FlowStop;
+      }).then(() => { if (!found) resolve(null); })
+        .catch((e) => { if (e !== _FlowStop) resolve(null); });
     });
   }
 

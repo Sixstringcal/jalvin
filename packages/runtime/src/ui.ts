@@ -5,7 +5,30 @@
 import type { StateFlow } from "./stateflow.js";
 import { ViewModel, viewModel as vmLookup, clearViewModel } from "./stateflow.js";
 
-// -- Reactivity Core --------------------------------------------------------
+// -- Hook slot types -----------------------------------------------------------
+
+type HookSlot =
+  | { kind: "memo"; value: any; deps: readonly unknown[] }
+  | { kind: "effect"; deps: readonly unknown[]; cleanup: (() => void) | undefined }
+  | { kind: "subscription"; flowRef: StateFlow<any>; unsub: () => void; state: MutableState<any> };
+
+// -- Per-render context --------------------------------------------------------
+// Each call to render() gets its own RenderContext so multiple independent
+// component trees cannot corrupt each other's hook state.
+
+interface RenderContext {
+  hookSlots: HookSlot[];
+  hookIndex: number;
+}
+
+let _currentContext: RenderContext | null = null;
+
+function getCurrentContext(): RenderContext {
+  if (!_currentContext) throw new Error("Hook called outside a render context");
+  return _currentContext;
+}
+
+// -- Reactivity Core ----------------------------------------------------------
 
 type Subscriber = () => void;
 let activeSubscriber: Subscriber | null = null;
@@ -14,7 +37,7 @@ let stateHolderIdCounter = 0;
 class StateHolder<T> {
   private _value: T;
   private subscribers = new Set<Subscriber>();
-  private readonly id = ++stateHolderIdCounter;
+  readonly id = ++stateHolderIdCounter;
 
   constructor(initial: T) {
     this._value = initial;
@@ -22,7 +45,6 @@ class StateHolder<T> {
 
   get value(): T {
     if (activeSubscriber) {
-      // console.log(`[State ${this.id}] Subscribing active render loop.`);
       this.subscribers.add(activeSubscriber);
     }
     return this._value;
@@ -42,101 +64,126 @@ class StateHolder<T> {
   }
 }
 
-// -- Hook System ------------------------------------------------------------
+// -- Dep comparison helper ----------------------------------------------------
 
-let currentHookIndex = 0;
-let hookState: any[] = [];
-
-/** Reset the hook pointer (called at the start of every render). */
-function resetHooks() {
-  currentHookIndex = 0;
+function depsEqual(a: readonly unknown[], b: readonly unknown[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (!Object.is(a[i], b[i])) return false;
+  }
+  return true;
 }
 
-// -- Public Primitives ------------------------------------------------------
+// -- Public Primitives --------------------------------------------------------
 
 export interface MutableState<T> {
   value: T;
 }
 
-/**
- * Returns a reactive state holder.
- */
 export function mutableStateOf<T>(initial: T): MutableState<T> {
   return new StateHolder(initial);
 }
 
 /**
  * Persists a value across re-renders.
+ * When deps change, the previous cleanup (if any) is called before recomputing.
  */
 export function remember<T>(compute: () => T, deps: readonly unknown[] = []): T {
-  const idx = currentHookIndex++;
-  const existing = hookState[idx];
+  const ctx = getCurrentContext();
+  const idx = ctx.hookIndex++;
+  const slot = ctx.hookSlots[idx] as ({ kind: "memo"; value: any; deps: readonly unknown[] } | undefined);
 
-  let depsChanged = !existing || !existing.deps || existing.deps.length !== deps.length;
-  if (!depsChanged && existing) {
-    for (let i = 0; i < deps.length; i++) {
-      if (!Object.is(deps[i], existing.deps[i])) {
-        depsChanged = true;
-        break;
-      }
-    }
+  if (slot?.kind === "memo" && depsEqual(slot.deps, deps)) {
+    return slot.value as T;
   }
 
-  if (depsChanged) {
-    hookState[idx] = { value: compute(), deps };
-  }
-  
-  return hookState[idx].value;
+  const value = compute();
+  ctx.hookSlots[idx] = { kind: "memo", value, deps };
+  return value;
 }
 
-/**
- * Convenience wrapper.
- */
 export function rememberMutableStateOf<T>(initial: T): MutableState<T> {
   return remember(() => mutableStateOf(initial));
 }
 
 /**
- * Collects a StateFlow into reactive state, persisting the subscription across renders.
+ * Collects a StateFlow into reactive state.
+ * The subscription is tracked per-context slot and cleaned up when the flow changes.
  */
 export function collectAsState<T>(flow: StateFlow<T>): T {
-  const state = remember(() => {
-    const s = mutableStateOf(flow.value);
-    flow.collect((v) => { s.value = v; });
-    return s;
-  }, [flow]);
-  
-  return state.value;
+  const ctx = getCurrentContext();
+  const idx = ctx.hookIndex++;
+  const existing = ctx.hookSlots[idx] as ({ kind: "subscription"; flowRef: StateFlow<any>; unsub: () => void; state: MutableState<any> } | undefined);
+
+  if (existing?.kind === "subscription" && existing.flowRef === flow) {
+    return existing.state.value as T;
+  }
+
+  // Flow changed or first render — clean up old subscription, create new one.
+  if (existing?.kind === "subscription") {
+    existing.unsub();
+  }
+
+  const state = mutableStateOf(flow.value);
+  const unsub = flow.collect((v) => { state.value = v; });
+  ctx.hookSlots[idx] = { kind: "subscription", flowRef: flow, unsub, state };
+  return state.value as T;
 }
 
 /**
- * Runs an effect tied to "component" execution.
+ * Runs an async effect. Re-runs (and cancels the previous run) when deps change.
+ * The returned AbortSignal lets long-running effects detect cancellation.
  */
 export function LaunchedEffect(
   deps: readonly unknown[],
-  fn: () => Promise<void>
+  fn: (signal: AbortSignal) => Promise<void>
 ): void {
-  remember(() => {
-    fn();
-    return true;
-  }, deps);
+  const ctx = getCurrentContext();
+  const idx = ctx.hookIndex++;
+  const existing = ctx.hookSlots[idx] as ({ kind: "effect"; deps: readonly unknown[]; cleanup: (() => void) | undefined } | undefined);
+
+  if (existing?.kind === "effect" && depsEqual(existing.deps, deps)) return;
+
+  // Cancel the previous effect if still running.
+  if (existing?.cleanup) existing.cleanup();
+
+  const controller = new AbortController();
+  fn(controller.signal).catch((e) => {
+    if (e?.name !== "AbortError") console.error("LaunchedEffect error:", e);
+  });
+  ctx.hookSlots[idx] = {
+    kind: "effect",
+    deps,
+    cleanup: () => controller.abort(),
+  };
 }
 
+/**
+ * Runs a synchronous effect and stores its cleanup. Cleanup is called when
+ * deps change or the slot is evicted.
+ */
 export function DisposableEffect(
   deps: readonly unknown[],
   fn: () => (() => void)
 ): void {
-  remember(() => {
-    fn();
-    return true;
-  }, deps);
+  const ctx = getCurrentContext();
+  const idx = ctx.hookIndex++;
+  const existing = ctx.hookSlots[idx] as ({ kind: "effect"; deps: readonly unknown[]; cleanup: (() => void) | undefined } | undefined);
+
+  if (existing?.kind === "effect" && depsEqual(existing.deps, deps)) return;
+
+  // Run the previous cleanup before re-running.
+  if (existing?.cleanup) existing.cleanup();
+
+  const cleanup = fn();
+  ctx.hookSlots[idx] = { kind: "effect", deps, cleanup };
 }
 
 export function SideEffect(fn: () => void): void {
   fn();
 }
 
-// -- Window Size ------------------------------------------------------------
+// -- Window Size --------------------------------------------------------------
 
 export type WindowSizeClass = "Compact" | "Medium" | "Expanded";
 
@@ -179,34 +226,47 @@ export function WindowSizeClassProvider({ children }: { children?: any }): any {
   return children;
 }
 
-// -- ViewModels -------------------------------------------------------------
+// -- ViewModels ---------------------------------------------------------------
 
 export { viewModel as useViewModel } from "./stateflow.js";
 
-// -- Root Rendering ---------------------------------------------------------
+// -- Root Rendering -----------------------------------------------------------
 
-let renderCount = 0;
 import { patch } from "./dom.js";
 import type { VNode } from "./dom.js";
 
 /**
+ * Runs all effect cleanups stored in a context's hook slots.
+ * Call before evicting a context (e.g., component unmount).
+ */
+function cleanupContext(ctx: RenderContext): void {
+  for (const slot of ctx.hookSlots) {
+    if (!slot) continue;
+    if (slot.kind === "effect" && slot.cleanup) slot.cleanup();
+    if (slot.kind === "subscription") slot.unsub();
+  }
+}
+
+/**
  * Mounts a Jalvin component to the DOM and sets up the re-render loop.
+ * Each call creates an isolated RenderContext so multiple independent trees
+ * cannot corrupt each other's hook state.
  */
 export function render(rootComponent: () => VNode, container: HTMLElement): void {
-  // Store the last rendered VNode on the container
+  const ctx: RenderContext = { hookSlots: [], hookIndex: 0 };
   let oldVNode: VNode | null = (container as any)._jalvin_vnode || null;
 
   const update = () => {
-    renderCount++;
+    const prevContext = _currentContext;
+    _currentContext = ctx;
     activeSubscriber = update;
 
-    // On first mount there is no previous component tree, so any values sitting in the
-    // global hookState belong to a prior render() call and must not be reused.
-    if (oldVNode === null) hookState = [];
+    // On first mount, clear any stale slots from a previous render() call on the same container.
+    if (oldVNode === null) ctx.hookSlots = [];
 
-    resetHooks();
+    ctx.hookIndex = 0;
 
-    // Save current active element (focus) and selection
+    // Save focused element to restore after patch.
     let activeId = "";
     if (document.activeElement && document.activeElement.id) {
       activeId = document.activeElement.id;
@@ -214,34 +274,44 @@ export function render(rootComponent: () => VNode, container: HTMLElement): void
       activeId = (document.activeElement as HTMLInputElement).name;
     }
 
-    let newVNode = rootComponent();
+    let newVNode: VNode;
+    try {
+      newVNode = rootComponent();
+    } catch (e) {
+      activeSubscriber = null;
+      _currentContext = prevContext;
+      throw e;
+    }
 
-    // Detect root-level component swap via the `key` prop. When two components share the same
-    // root tag (e.g. both compile to <div>) but carry different keys, the global hookState from
-    // the outgoing component poisons the incoming one — `remember(fn, [])` slots collide and
-    // the new component silently reuses the old component's memoized values.
-    // Fix: if the root key changed, wipe hookState and re-render synchronously so the incoming
-    // component starts with a clean hook slate. The first (poisoned) render is never painted.
+    // If the root key changed, wipe slots and re-render so the incoming component
+    // starts with a clean hook slate (guards against hook-slot collisions between
+    // two components that share the same root tag but carry different keys).
     const oldKey = (oldVNode as VNode | null)?.props?.key;
     const newKey = (newVNode as VNode)?.props?.key;
     if (newKey !== undefined && oldKey !== undefined && newKey !== oldKey) {
-      hookState = [];
-      resetHooks();
-      newVNode = rootComponent();
+      cleanupContext(ctx);
+      ctx.hookSlots = [];
+      ctx.hookIndex = 0;
+      try {
+        newVNode = rootComponent();
+      } catch (e) {
+        activeSubscriber = null;
+        _currentContext = prevContext;
+        throw e;
+      }
     }
 
-    // Patch the DOM instead of recreating it
+    activeSubscriber = null;
+    _currentContext = prevContext;
+
     patch(container, newVNode, oldVNode);
     oldVNode = newVNode;
     (container as any)._jalvin_vnode = oldVNode;
 
-    // Restore focus if possible
     if (activeId) {
       const toFocus = document.getElementById(activeId) || document.querySelector(`input[name="${activeId}"]`);
       if (toFocus) (toFocus as HTMLElement).focus();
     }
-
-    activeSubscriber = null;
   };
 
   update();

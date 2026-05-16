@@ -1333,8 +1333,14 @@ export class CodeGenerator {
           const eq = `jalvinEquals(${this.emitExpr(expr.left)}, ${this.emitExpr(expr.right)})`;
           return expr.op === "==" ? eq : `!${eq}`;
         }
-        if (expr.op === "in") return `${this.emitExpr(expr.right)}.includes?.(${this.emitExpr(expr.left)}) ?? (${this.emitExpr(expr.left)} in ${this.emitExpr(expr.right)})`;
-        if (expr.op === "!in") return `!(${this.emitExpr(expr.right)}.includes?.(${this.emitExpr(expr.left)}) ?? (${this.emitExpr(expr.left)} in ${this.emitExpr(expr.right)}))`;
+        if (expr.op === "in" || expr.op === "!in") {
+          // Evaluate each operand exactly once via an IIFE to avoid double side-effects.
+          // Try .has() first (Map/Set), then .includes() (Array), fall back to JS `in` (plain objects).
+          const l = this.emitExpr(expr.left);
+          const r = this.emitExpr(expr.right);
+          const check = `((__l, __r) => __r.has?.(__l) ?? __r.includes?.(__l) ?? (__l in __r))(${l}, ${r})`;
+          return expr.op === "in" ? check : `!(${check})`;
+        }
         return `(${this.emitExpr(expr.left)} ${this.binaryOpStr(expr.op)} ${this.emitExpr(expr.right)})`;
       }
       case "AssignExpr":
@@ -1385,8 +1391,8 @@ export class CodeGenerator {
         const val = expr.value ? ` ${this.emitExpr(expr.value)}` : "";
         return `((() => { return${val}; })())`;
       }
-      case "BreakExpr":             return "undefined /* break */";
-      case "ContinueExpr":          return "undefined /* continue */";
+      case "BreakExpr":             return `((() => { throw new Error("break used as expression is not supported"); })())`;
+      case "ContinueExpr":          return `((() => { throw new Error("continue used as expression is not supported"); })())`;
       case "JsxElement":            return this.emitJsxElement(expr);
       default:                      return "undefined";
     }
@@ -1413,7 +1419,9 @@ export class CodeGenerator {
     switch (child.kind) {
       case "JsxElement":   return this.emitJsxElement(child);
       case "JsxExprChild": return this.emitExpr(child.expr);
-      case "JsxTextChild": return `document.createTextNode(${JSON.stringify(child.text)})`;
+      // Emit as a plain string so it flows through the VNode children array correctly.
+      // createDOMNode() already handles string children via document.createTextNode().
+      case "JsxTextChild": return JSON.stringify(child.text);
     }
   }
 
@@ -1610,8 +1618,13 @@ export class CodeGenerator {
     for (let i = 0; i < expr.args.length; i++) {
       const arg = expr.args[i]!;
       const propName = arg.name ?? paramNames?.[i] ?? (arg.value.kind === "NameExpr" ? arg.value.name : undefined);
-      if (!propName) continue;
       const val = this.emitExpr(arg.value);
+      if (!propName) {
+        // Positional prop with no resolvable name — emit as a numbered key so the value
+        // is not silently dropped.  e.g. __arg0: <expr>
+        props.push(`__arg${i}: ${val}`);
+        continue;
+      }
       props.push(propName === val ? propName : `${propName}: ${val}`);
     }
     const propsStr = props.length > 0 ? `{ ${props.join(", ")} }` : "{}";
@@ -1697,8 +1710,20 @@ export class CodeGenerator {
 
   private captureBlock(block: AST.Block): string { return block.statements.map((s) => this.captureStmt(s)).join(" "); }
   private captureBlockStatements(stmts: readonly AST.Stmt[]): string { return stmts.map((s) => this.captureStmt(s)).join(" "); }
-  private captureStmt(stmt: AST.Stmt): string { const saved = this.w; const tmp = new Writer(); (this as any).w = tmp; this.emitStmt(stmt); (this as any).w = saved; return tmp.output.trim(); }
-  private captureClassMember(member: AST.ClassMember): string { const saved = this.w; const tmp = new Writer(); (this as any).w = tmp; this.emitClassMember(member); (this as any).w = saved; return tmp.output.trim(); }
+  private captureStmt(stmt: AST.Stmt): string {
+    const saved = this.w;
+    const tmp = new Writer();
+    (this as any).w = tmp;
+    try { this.emitStmt(stmt); } finally { (this as any).w = saved; }
+    return tmp.output.trim();
+  }
+  private captureClassMember(member: AST.ClassMember): string {
+    const saved = this.w;
+    const tmp = new Writer();
+    (this as any).w = tmp;
+    try { this.emitClassMember(member); } finally { (this as any).w = saved; }
+    return tmp.output.trim();
+  }
 
   private emitTypeRef(ref: AST.TypeRef): string {
     switch (ref.kind) {

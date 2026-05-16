@@ -186,7 +186,15 @@ export function jalvin(opts: JalvinViteOptions = {}): any {
 
     resolveId(id: string, importer: string | undefined) {
       if (id === VIRTUAL_ENTRY) return VIRTUAL_ENTRY_RESOLVED;
-      if (isJalvinFile(id)) return id;
+      if (isJalvinFile(id)) {
+        // Resolve relative .jalvin imports to absolute paths so Vite's module
+        // graph can deduplicate them correctly and the transform hook receives
+        // a stable, absolute id.
+        if (id.startsWith(".") && importer) {
+          return path.resolve(path.dirname(importer), id);
+        }
+        return id;
+      }
       return null;
     },
 

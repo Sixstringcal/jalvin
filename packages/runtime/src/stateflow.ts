@@ -58,7 +58,9 @@ export class MutableStateFlow<T> implements StateFlow<T> {
     return {
       [Symbol.asyncIterator]() {
         let resolve: ((v: IteratorResult<T>) => void) | null = null;
-        const queue: T[] = [self._value];
+        // Do NOT pre-populate the queue; collect() delivers the current value
+        // immediately as the first emission, so pre-populating would double it.
+        const queue: T[] = [];
         let done = false;
 
         const unsub = self.collect((v) => {
@@ -108,27 +110,37 @@ export class MutableStateFlow<T> implements StateFlow<T> {
 // Flow operators — map, filter, take, debounce
 // ---------------------------------------------------------------------------
 
-export function mapFlow<T, R>(source: StateFlow<T>, transform: (v: T) => R): StateFlow<R> {
-  const derived = new MutableStateFlow<R>(transform(source.value));
-  source.collect((v) => { derived.value = transform(v); });
-  return derived;
+export interface DerivedFlow<T> extends StateFlow<T> {
+  /** Stop the derived flow from receiving updates from its source. */
+  dispose(): void;
 }
 
-export function filterFlow<T>(source: StateFlow<T>, predicate: (v: T) => boolean): StateFlow<T | undefined> {
+export function mapFlow<T, R>(source: StateFlow<T>, transform: (v: T) => R): DerivedFlow<R> {
+  const derived = new MutableStateFlow<R>(transform(source.value));
+  const unsub = source.collect((v) => { derived.value = transform(v); });
+  return Object.assign(derived, { dispose: unsub });
+}
+
+export function filterFlow<T>(source: StateFlow<T>, predicate: (v: T) => boolean): DerivedFlow<T | undefined> {
   const initial = predicate(source.value) ? source.value : undefined;
   const derived = new MutableStateFlow<T | undefined>(initial);
-  source.collect((v) => { if (predicate(v)) derived.value = v; });
-  return derived;
+  const unsub = source.collect((v) => { if (predicate(v)) derived.value = v; });
+  return Object.assign(derived, { dispose: unsub });
 }
 
-export function debounceFlow<T>(source: StateFlow<T>, delayMs: number): StateFlow<T> {
+export function debounceFlow<T>(source: StateFlow<T>, delayMs: number): DerivedFlow<T> {
   const derived = new MutableStateFlow<T>(source.value);
   let timer: ReturnType<typeof setTimeout> | null = null;
-  source.collect((v) => {
+  const unsub = source.collect((v) => {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => { derived.value = v; }, delayMs);
   });
-  return derived;
+  return Object.assign(derived, {
+    dispose: () => {
+      unsub();
+      if (timer) { clearTimeout(timer); timer = null; }
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------

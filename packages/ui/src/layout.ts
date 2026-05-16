@@ -1,5 +1,6 @@
 import { Modifier } from "./modifier.js";
 import { jalvinCreateElement } from "@jalvin/runtime";
+import type { VNode } from "@jalvin/runtime";
 
 export type Alignment = "start" | "center" | "end" | "stretch";
 export type Arrangement = "start" | "center" | "end" | "spaceBetween" | "spaceAround" | "spaceEvenly";
@@ -34,8 +35,8 @@ export interface ColumnProps {
 /** Vertical flex container. */
 export function Column(
   { modifier, spacing, verticalArrangement = "start", horizontalAlignment = "start" }: ColumnProps,
-  children?: Node[]
-): HTMLElement {
+  children?: VNode[]
+): VNode {
   const modProps = modifier?.toProps() ?? {};
   return jalvinCreateElement("div", {
     ...modProps,
@@ -61,8 +62,8 @@ export interface RowProps {
 /** Horizontal flex container. */
 export function Row(
   { modifier, spacing, horizontalArrangement = "start", verticalAlignment = "center", wrap = false }: RowProps,
-  children?: Node[]
-): HTMLElement {
+  children?: VNode[]
+): VNode {
   const modProps = modifier?.toProps() ?? {};
   return jalvinCreateElement("div", {
     ...modProps,
@@ -78,25 +79,37 @@ export function Row(
   }, children ?? []);
 }
 
+export type ContentAlignment =
+  | "topStart" | "topCenter" | "topEnd"
+  | "centerStart" | "center" | "centerEnd"
+  | "bottomStart" | "bottomCenter" | "bottomEnd";
+
 export interface BoxProps {
   modifier?: Modifier;
-  contentAlignment?: "topStart" | "topCenter" | "topEnd" | "centerStart" | "center" | "centerEnd" | "bottomStart" | "bottomCenter" | "bottomEnd";
+  contentAlignment?: ContentAlignment;
 }
 
-/** Positioned container. */
+function contentAlignmentToStyle(a: ContentAlignment): { alignItems: string; justifyContent: string } {
+  const row = a.startsWith("top") ? "flex-start" : a.startsWith("bottom") ? "flex-end" : "center";
+  const col = a.endsWith("Start") ? "flex-start" : a.endsWith("End") ? "flex-end" : "center";
+  return { alignItems: col, justifyContent: row };
+}
+
+/** Positioned/stacking container. */
 export function Box(
   { modifier, contentAlignment = "topStart" }: BoxProps,
-  children?: Node[]
-): HTMLElement {
+  children?: VNode[]
+): VNode {
   const modProps = modifier?.toProps() ?? {};
-  const isCentered = contentAlignment === "center";
+  const { alignItems, justifyContent } = contentAlignmentToStyle(contentAlignment);
   return jalvinCreateElement("div", {
     ...modProps,
     style: {
       position: "relative",
       display: "flex",
       flexDirection: "column",
-      ...(isCentered ? { alignItems: "center", justifyContent: "center" } : {}),
+      alignItems,
+      justifyContent,
       ...modProps.style,
     },
   }, children ?? []);

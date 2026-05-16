@@ -1,6 +1,7 @@
 import { Modifier } from "./modifier.js";
 import { jalvinCreateElement } from "@jalvin/runtime";
-import { mutableStateOf } from "@jalvin/runtime";
+import { MutableStateFlow, remember, collectAsState, DisposableEffect } from "@jalvin/runtime";
+import type { VNode } from "@jalvin/runtime";
 
 export interface ImageProps {
   src: string;
@@ -17,7 +18,7 @@ export function Image({
   modifier,
   contentScale = "fit",
   onClick,
-}: ImageProps): HTMLElement {
+}: ImageProps): VNode {
   const modProps = modifier?.toProps() ?? {};
   return jalvinCreateElement("img", {
     src,
@@ -39,12 +40,13 @@ export function Image({
 }
 
 export interface AsyncImageProps extends ImageProps {
-  loadingPlaceholder?: Node;
-  errorPlaceholder?: Node;
+  loadingPlaceholder?: VNode;
+  errorPlaceholder?: VNode;
 }
 
 /**
  * Image that handles loading/error states.
+ * Must be called within a composable context (inside render() or a component fun).
  */
 export function AsyncImage({
   src,
@@ -54,38 +56,28 @@ export function AsyncImage({
   onClick,
   loadingPlaceholder,
   errorPlaceholder,
-}: AsyncImageProps): HTMLElement {
-  const status = mutableStateOf<"loading" | "ok" | "error">("loading");
-  
-  const container = jalvinCreateElement("span", { 
-    style: { position: "relative", display: "inline-block" } 
-  }, []);
+}: AsyncImageProps): VNode {
+  // remember() ensures the MutableStateFlow persists across re-renders of the parent
+  const status = remember(() => new MutableStateFlow<"loading" | "ok" | "error">("loading"));
 
-  const img = new window.Image();
-  img.src = src;
-  img.alt = alt ?? "";
-  img.onload = () => { status.value = "ok"; };
-  img.onerror = () => { status.value = "error"; };
+  // collectAsState() subscribes to status and triggers parent re-render on change
+  const currentStatus = collectAsState(status);
 
-  // Simple reactive container update
-  // In a full implementation, the render loop handles this.
-  // For AsyncImage, we'll manually manage the internal switch.
-  
-  const update = () => {
-    container.innerHTML = "";
-    if (status.value === "error" && errorPlaceholder) {
-      container.appendChild(errorPlaceholder);
-    } else {
-      if (status.value === "loading" && loadingPlaceholder) {
-        container.appendChild(loadingPlaceholder);
-      }
-      container.appendChild(Image({ src, alt, modifier, contentScale, onClick }));
-    }
-  };
+  // DisposableEffect re-runs whenever src changes, kicks off the load and resets status
+  DisposableEffect([src], () => {
+    status.value = "loading";
+    const img = new window.Image();
+    img.onload = () => { status.value = "ok"; };
+    img.onerror = () => { status.value = "error"; };
+    img.src = src;
+    return () => { img.onload = null; img.onerror = null; };
+  });
 
-  // Subscribe to status changes manually for this internal reactivity
-  (status as any).subscribers?.add(update);
-  update();
-
-  return container;
+  if (currentStatus === "error" && errorPlaceholder) {
+    return errorPlaceholder;
+  }
+  if (currentStatus === "loading" && loadingPlaceholder) {
+    return loadingPlaceholder;
+  }
+  return Image({ src, alt, modifier, contentScale, onClick });
 }

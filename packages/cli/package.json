@@ -1,6 +1,6 @@
 {
   "name": "@jalvin/cli",
-  "version": "2.0.46",
+  "version": "2.0.47",
   "description": "Jalvin language — command line interface",
   "type": "module",
   "bin": {
