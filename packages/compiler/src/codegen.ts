@@ -200,6 +200,8 @@ export class CodeGenerator {
     // Resolve component fun symbols from locally imported .jalvin files
     const sourceRoot = this.opts.sourceRoot ?? process.cwd();
     this.resolveLocalComponentImports(program, sourceRoot);
+    // Detect props-object calling convention from .d.ts for external @jalvin/* packages
+    this.resolveExternalPackageImports(program, sourceRoot);
 
     // Pre-compute external star-import candidates (before emitting anything)
     this.externalStarCandidates = new Set<string>();
@@ -1526,6 +1528,90 @@ export class CodeGenerator {
     return `${callee}${typeArgs}(${finalArgs.join(", ")})`;
   }
 
+  private resolveExternalPackageImports(program: AST.Program, sourceRoot: string): void {
+    for (const imp of program.imports) {
+      if (imp.star) continue;
+      if (imp.path[0] !== "@jalvin") continue;
+      if (imp.path[1] === "ui") continue; // already handled
+      if (imp.path.length < 2) continue;
+
+      const rawSymbolName = imp.path[imp.path.length - 1]!;
+      const symbolName = imp.alias ?? rawSymbolName;
+      const moduleParts = imp.path.slice(0, -1);
+      const moduleSpecifier = moduleParts[0] + "/" + moduleParts.slice(1).join("/");
+
+      const propNames = this.readPropsObjectFromDts(rawSymbolName, moduleSpecifier, sourceRoot);
+      if (propNames) {
+        this.allComponentLikeNames.add(symbolName);
+        this.componentParamNames.set(symbolName, propNames);
+      }
+    }
+  }
+
+  private readPropsObjectFromDts(symbolName: string, moduleSpecifier: string, sourceRoot: string): string[] | null {
+    // Walk up to find node_modules/<moduleSpecifier>
+    let pkgRoot: string | null = null;
+    let dir = sourceRoot;
+    while (true) {
+      const candidate = nodePath.join(dir, "node_modules", moduleSpecifier);
+      if (fs.existsSync(nodePath.join(candidate, "package.json"))) {
+        pkgRoot = candidate;
+        break;
+      }
+      const parent = nodePath.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+    if (!pkgRoot) return null;
+
+    let pkgJson: { types?: string; typings?: string };
+    try {
+      pkgJson = JSON.parse(fs.readFileSync(nodePath.join(pkgRoot, "package.json"), "utf8")) as { types?: string; typings?: string };
+    } catch { return null; }
+
+    const typesEntry = pkgJson.types ?? pkgJson.typings;
+    if (!typesEntry) return null;
+
+    const indexDtsPath = nodePath.join(pkgRoot, typesEntry);
+    let indexContent: string;
+    try {
+      indexContent = fs.readFileSync(indexDtsPath, "utf8");
+    } catch { return null; }
+
+    // Follow re-export: `export { NavHost, ... } from "./nav.js"` → nav.d.ts
+    const reExportRegex = new RegExp(
+      `export\\s+\\{[^}]*\\b${symbolName}\\b[^}]*\\}\\s+from\\s+"([^"]+)"`,
+      "s"
+    );
+    const reExportMatch = reExportRegex.exec(indexContent);
+
+    let dtsContent: string;
+    if (reExportMatch) {
+      const subPath = reExportMatch[1]!.replace(/\.js$/, ".d.ts");
+      try {
+        dtsContent = fs.readFileSync(nodePath.join(nodePath.dirname(indexDtsPath), subPath), "utf8");
+      } catch { return null; }
+    } else {
+      dtsContent = indexContent;
+    }
+
+    // Match: `declare function NavHost(props: { propA: ...; propB: ...; }, ...`
+    const fnRegex = new RegExp(
+      `declare\\s+function\\s+${symbolName}\\s*\\(\\s*props\\s*:\\s*\\{([^}]*)\\}`,
+      "s"
+    );
+    const fnMatch = fnRegex.exec(dtsContent);
+    if (!fnMatch) return null;
+
+    const propNames: string[] = [];
+    const propRegex = /(\w+)\s*:/g;
+    let m: RegExpExecArray | null;
+    while ((m = propRegex.exec(fnMatch[1]!)) !== null) {
+      propNames.push(m[1]!);
+    }
+    return propNames.length > 0 ? propNames : null;
+  }
+
   private resolveLocalComponentImports(program: AST.Program, sourceRoot: string): void {
     this.localStarExports.clear();
     for (const imp of program.imports) {
@@ -1629,6 +1715,10 @@ export class CodeGenerator {
     }
     const propsStr = props.length > 0 ? `{ ${props.join(", ")} }` : "{}";
     if (expr.trailingLambda) {
+      if (expr.trailingLambda.params.length > 0) {
+        // Lambda with explicit params (e.g. builder-style): emit as a function, not DOM children
+        return `${callee}(${propsStr}, [${this.emitLambdaExpr(expr.trailingLambda)}])`;
+      }
       const children = this.emitLambdaBodyAsDomChildren(expr.trailingLambda);
       return `${callee}(${propsStr}, [${children}])`;
     }
