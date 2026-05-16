@@ -1,6 +1,6 @@
 {
   "name": "@jalvin/cli",
-  "version": "2.0.42",
+  "version": "2.0.45",
   "description": "Jalvin language — command line interface",
   "type": "module",
   "bin": {
@@ -16,7 +16,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@jalvin/compiler": "2.0.42",
+    "@jalvin/compiler": "2.0.43",
     "vite": "^5.0.0"
   },
   "devDependencies": {

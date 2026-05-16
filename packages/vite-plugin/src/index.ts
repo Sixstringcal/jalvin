@@ -159,8 +159,9 @@ export function jalvin(opts: JalvinViteOptions = {}): any {
 
     config(cfg: any, { command }: { command: string }) {
       cfg.optimizeDeps = cfg.optimizeDeps ?? {};
+      cfg.optimizeDeps.include = cfg.optimizeDeps.include ?? [];
       cfg.optimizeDeps.exclude = cfg.optimizeDeps.exclude ?? [];
-      if (!cfg.optimizeDeps.exclude.includes("@jalvin/runtime")) cfg.optimizeDeps.exclude.push("@jalvin/runtime");
+      if (!cfg.optimizeDeps.include.includes("@jalvin/runtime")) cfg.optimizeDeps.include.push("@jalvin/runtime");
       if (!cfg.optimizeDeps.exclude.includes("@jalvin/ui")) cfg.optimizeDeps.exclude.push("@jalvin/ui");
 
       cfg.esbuild = cfg.esbuild ?? {};

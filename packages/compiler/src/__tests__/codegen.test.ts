@@ -895,6 +895,8 @@ component fun CubeControlsView(vm: Any) {
       const src = `
 import src.views.MoveCounterView.MoveCounter
 
+class RotationButtonsViewModel(val vm: Any) { }
+
 component fun CubeControlsView(vm: Any) {
   val rotVm = RotationButtonsViewModel(vm)
   MoveCounter(vm)
@@ -1134,5 +1136,44 @@ component fun Wrapper() {
     expect(code).toContain("text:");
     // Must not produce an empty props object for Label
     expect(code).not.toMatch(/Label\(\{\s*\}\)/);
+  });
+});
+
+describe("Codegen — constructor call heuristic (type-based, not PascalCase)", () => {
+  it("does not emit new for an undeclared PascalCase name", () => {
+    const code = gen(`
+fun test() {
+  val x = MyFactory(1, 2)
+}`);
+    expect(code).not.toContain("new MyFactory");
+    expect(code).toContain("MyFactory(1, 2)");
+  });
+
+  it("emits new for a locally declared class", () => {
+    const code = gen(`
+class MyPoint(val x: Int, val y: Int) { }
+fun test() {
+  val p = MyPoint(1, 2)
+}`);
+    expect(code).toContain("new MyPoint(1, 2)");
+  });
+
+  it("emits new for an external class declaration", () => {
+    const code = gen(`
+external class Blob
+fun test() {
+  val b = Blob()
+}`);
+    expect(code).toContain("new Blob()");
+    expect(code).not.toContain("class Blob");
+  });
+
+  it("does not emit new for a data class used as a factory-style call via its companion", () => {
+    const code = gen(`
+fun test() {
+  val x = lowerCaseFactory(1)
+}`);
+    expect(code).not.toContain("new lowerCaseFactory");
+    expect(code).toContain("lowerCaseFactory(1)");
   });
 });

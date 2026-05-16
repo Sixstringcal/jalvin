@@ -593,6 +593,7 @@ export class CodeGenerator {
   // ── regular class ──────────────────────────────────────────────────────────
 
   private emitClassDecl(decl: AST.ClassDecl): void {
+    if (decl.modifiers.modifiers.includes("external")) return;
     this.emitAnnotations(decl.modifiers);
     const vis = this.exportPrefix(decl.modifiers);
     const abstract = decl.modifiers.modifiers.includes("abstract") ? "abstract " : "";
@@ -1592,15 +1593,12 @@ export class CodeGenerator {
   }
 
   private isConstructorCall(calleeExpr: AST.Expr): boolean {
-    if (calleeExpr.kind === "NameExpr") {
-      if (this.allComponentLikeNames.has(calleeExpr.name)) return false;
-      return /^[A-Z]/.test(calleeExpr.name);
-    }
-    if (calleeExpr.kind === "MemberExpr") {
-      if (this.allComponentLikeNames.has(calleeExpr.member)) return false;
-      return /^[A-Z]/.test(calleeExpr.member);
-    }
-    return false;
+    const name =
+      calleeExpr.kind === "NameExpr" ? calleeExpr.name :
+      calleeExpr.kind === "MemberExpr" ? calleeExpr.member :
+      null;
+    if (name !== null && this.allComponentLikeNames.has(name)) return false;
+    return this.typeMap.get(calleeExpr)?.tag === "class";
   }
 
   private emitComponentCall(expr: AST.CallExpr): string {
