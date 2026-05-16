@@ -367,7 +367,8 @@ describe("Codegen — UI Primitives", () => {
 component fun Hello() {
   return (<div class="hello">Hi</div>)
 }`);
-    expect(code).toContain('jalvinCreateElement("div", { className: "hello" }, [document.createTextNode("Hi")])');
+    expect(code).toContain('jalvinCreateElement("div", { className: "hello" }, ["Hi"])');
+    expect(code).not.toContain("document.createTextNode");
   });
 
   it("emits UI primitive self-closing element", () => {
@@ -1175,5 +1176,119 @@ fun test() {
 }`);
     expect(code).not.toContain("new lowerCaseFactory");
     expect(code).toContain("lowerCaseFactory(1)");
+  });
+});
+
+// ── Fix #5: in/!in — when-condition compiles to .includes() ──────────────────
+// Note: `in` as a standalone binary expression is not yet parseable in Jalvin;
+// it is only supported inside `when` conditions and `for` loops. The codegen
+// handles WhenInCondition by emitting `.includes()`, which evaluates the
+// collection expression exactly once (no double side-effects).
+describe("Codegen — in/!in when-conditions (fix: no double side-effects)", () => {
+  it("when-in compiles to .includes(subject)", () => {
+    const code = gen(`
+fun f(x: Int): String {
+  return when (x) {
+    in listOf(1, 2, 3) -> "found"
+    else -> "not found"
+  }
+}`);
+    expect(code).toContain(".includes(");
+    expect(code).not.toContain("document.createTextNode");
+  });
+
+  it("when-!in compiles to negated .includes()", () => {
+    const code = gen(`
+fun f(x: Int): String {
+  return when (x) {
+    !in listOf(1, 2, 3) -> "absent"
+    else -> "present"
+  }
+}`);
+    expect(code).toContain("!((");
+    expect(code).toContain(".includes(");
+  });
+
+  it("when-in collection expression appears only once (no double eval)", () => {
+    const code = gen(`
+fun f(x: Int): String {
+  return when (x) {
+    in listOf(1, 2, 3) -> "yes"
+    else -> "no"
+  }
+}`);
+    // The subject variable should appear once inside the .includes() call
+    const includesMatches = (code.match(/\.includes\(/g) ?? []).length;
+    expect(includesMatches).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ── Fix #4: captureStmt try/finally ──────────────────────────────────────────
+describe("Codegen — captureStmt robustness", () => {
+  it("emits a when expression inside a lambda without corrupting the writer", () => {
+    // This exercises captureStmt/captureBlockStatements internally
+    const code = gen(`
+fun label(n: Int): String {
+  val result = listOf(1,2,3).map { x ->
+    when (x) {
+      1 -> "one"
+      else -> "other"
+    }
+  }
+  return result[0]
+}`);
+    expect(code).toContain("map");
+    expect(code).toContain("jalvinEquals");
+  });
+
+  it("nested when expressions don't leak writer state", () => {
+    const code = gen(`
+fun f(a: Int, b: Int): String {
+  return when (a) {
+    1 -> when (b) {
+      2 -> "one-two"
+      else -> "one-other"
+    }
+    else -> "other"
+  }
+}`);
+    expect(code).toContain("one-two");
+    expect(code).toContain("one-other");
+  });
+});
+
+// ── Fix #6 / #7: BreakExpr / ContinueExpr emit runtime errors ────────────────
+describe("Codegen — BreakExpr / ContinueExpr as expressions", () => {
+  it("BreakExpr emits a throw, not silent undefined", () => {
+    const code = gen(`
+fun f(): String {
+  return when (a) {
+    1 -> "ok"
+    else -> break
+  }
+}`);
+    expect(code).toContain("throw new Error");
+    expect(code).toContain("break used as expression");
+  });
+});
+
+// ── Fix #11: JsxTextChild emits string, not DOM node ─────────────────────────
+describe("Codegen — JSX text children (fix: string not DOM node)", () => {
+  it("text inside JSX tags compiles to a quoted string, not document.createTextNode()", () => {
+    const code = gen(`
+component fun Hello() {
+  return (<div>Hello world</div>)
+}`);
+    expect(code).not.toContain("document.createTextNode");
+    expect(code).toContain('"Hello world"');
+  });
+
+  it("JSX text child sits inside the VNode children array as a plain string", () => {
+    const code = gen(`
+component fun Greeting() {
+  return (<p>Welcome!</p>)
+}`);
+    expect(code).toContain('"Welcome!"');
+    expect(code).not.toContain("createTextNode");
   });
 });

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, remember, collectAsState } from "../ui.js";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, remember, collectAsState, DisposableEffect, LaunchedEffect, mutableStateOf } from "../ui.js";
 import type { VNode } from "../dom.js";
 import { MutableStateFlow } from "../stateflow.js";
 
@@ -195,5 +195,164 @@ describe("render() — hook state isolation on root key swap", () => {
     screen.value = "home";
     expect(container.querySelector("#username-field")).toBeNull();
     expect(container.querySelector("#welcome-heading")).not.toBeNull();
+  });
+});
+
+// ── Fix #12: per-render hook isolation ───────────────────────────────────────
+describe("render() — per-render context isolation (fix #12)", () => {
+  it("two independent render() calls do not share hookState", () => {
+    const counterA = new MutableStateFlow(0);
+    const counterB = new MutableStateFlow(0);
+
+    const factoryA = vi.fn(() => "memo-a");
+    const factoryB = vi.fn(() => "memo-b");
+
+    let valA = "";
+    let valB = "";
+
+    function AppA(): VNode {
+      collectAsState(counterA);
+      valA = remember(factoryA, []);
+      return el("div", { id: "a" });
+    }
+
+    function AppB(): VNode {
+      collectAsState(counterB);
+      valB = remember(factoryB, []);
+      return el("div", { id: "b" });
+    }
+
+    const ca = makeContainer();
+    const cb = document.createElement("div");
+    document.body.appendChild(cb);
+
+    render(AppA, ca);
+    render(AppB, cb);
+
+    expect(valA).toBe("memo-a");
+    expect(valB).toBe("memo-b");
+
+    // Trigger AppA update — AppB's factory must NOT be re-called
+    counterA.value = 1;
+    expect(factoryB).toHaveBeenCalledTimes(1); // only called at initial AppB mount
+
+    // Trigger AppB update — AppA's factory must NOT be re-called
+    counterB.value = 1;
+    expect(factoryA).toHaveBeenCalledTimes(1); // only called at initial AppA mount
+  });
+});
+
+// ── Fix #13: collectAsState does not leak subscriptions ───────────────────────
+describe("collectAsState() — subscription cleanup (fix #13)", () => {
+  it("cleans up old subscription when flow reference changes", () => {
+    const flowA = new MutableStateFlow(0);
+    const flowB = new MutableStateFlow(100);
+    const whichFlow = new MutableStateFlow<"a" | "b">("a");
+    let rendered = 0;
+
+    function App(): VNode {
+      const which = collectAsState(whichFlow);
+      const val = collectAsState(which === "a" ? flowA : flowB);
+      rendered = val;
+      return el("div");
+    }
+
+    const container = makeContainer();
+    render(App, container);
+    expect(rendered).toBe(0);
+
+    // Switch to flow B — flow A's subscription should be dropped
+    whichFlow.value = "b";
+    expect(rendered).toBe(100);
+
+    // Update flowA — should NOT trigger a re-render since we unsubscribed
+    const prevRendered = rendered;
+    flowA.value = 999;
+    expect(rendered).toBe(prevRendered); // unchanged
+  });
+});
+
+// ── Fix #14: DisposableEffect cleanup is called ───────────────────────────────
+describe("DisposableEffect() — cleanup called on dep change (fix #14)", () => {
+  it("calls cleanup when deps change", () => {
+    const deps = new MutableStateFlow(0);
+    const cleanup = vi.fn();
+
+    function App(): VNode {
+      const d = collectAsState(deps);
+      DisposableEffect([d], () => {
+        return cleanup;
+      });
+      return el("div");
+    }
+
+    render(App, makeContainer());
+    expect(cleanup).not.toHaveBeenCalled();
+
+    deps.value = 1; // dep change → cleanup must be called
+    expect(cleanup).toHaveBeenCalledTimes(1);
+
+    deps.value = 2;
+    expect(cleanup).toHaveBeenCalledTimes(2);
+  });
+
+  it("does NOT call cleanup when deps are stable", () => {
+    const trigger = new MutableStateFlow(0);
+    const cleanup = vi.fn();
+
+    function App(): VNode {
+      collectAsState(trigger);
+      DisposableEffect([], () => cleanup); // [] deps — never changes
+      return el("div");
+    }
+
+    render(App, makeContainer());
+    trigger.value = 1;
+    trigger.value = 2;
+
+    expect(cleanup).not.toHaveBeenCalled();
+  });
+});
+
+// ── Fix #15: LaunchedEffect passes AbortSignal and re-fires on dep change ──────
+describe("LaunchedEffect() — cancellation via AbortSignal (fix #15)", () => {
+  it("abort signal is not aborted on first launch", async () => {
+    let capturedSignal: AbortSignal | null = null;
+
+    function App(): VNode {
+      LaunchedEffect([], async (signal) => {
+        capturedSignal = signal;
+      });
+      return el("div");
+    }
+
+    render(App, makeContainer());
+    await Promise.resolve(); // let microtasks flush
+    expect(capturedSignal).not.toBeNull();
+    expect(capturedSignal!.aborted).toBe(false);
+  });
+
+  it("aborts previous signal when deps change", async () => {
+    const deps = new MutableStateFlow(0);
+    const signals: AbortSignal[] = [];
+
+    function App(): VNode {
+      const d = collectAsState(deps);
+      LaunchedEffect([d], async (signal) => {
+        signals.push(signal);
+        await new Promise(() => {}); // never resolves
+      });
+      return el("div");
+    }
+
+    render(App, makeContainer());
+    await Promise.resolve();
+    const first = signals[0]!;
+    expect(first.aborted).toBe(false);
+
+    deps.value = 1; // triggers new effect run
+    await Promise.resolve();
+    expect(first.aborted).toBe(true); // previous run was aborted
+    expect(signals.length).toBe(2);
   });
 });

@@ -511,19 +511,65 @@ export class Lexer {
           isTemplate = true;
           templateParts.push(value);
           value = "";
-          // We just return the string fragment; the parser handles interpolation
-          // by re-lexing nested expressions. For simplicity we encode templates
-          // into a single StringTemplateExpr token with the raw text.
-          // Consume ${ block
-          this.advance(); this.advance();
+          this.advance(); this.advance(); // consume ${
           let depth = 1;
           let exprText = "";
           while (this.pos < this.src.length && depth > 0) {
             const ec = this.src[this.pos]!;
-            if (ec === "{") depth++;
-            else if (ec === "}") { depth--; if (depth === 0) { this.advance(); break; } }
-            exprText += ec;
-            this.advance();
+            if (ec === "{") {
+              depth++;
+              exprText += ec;
+              this.advance();
+            } else if (ec === "}") {
+              depth--;
+              if (depth === 0) { this.advance(); break; }
+              exprText += ec;
+              this.advance();
+            } else if (ec === '"') {
+              // Scan over a nested string literal so its braces don't confuse depth tracking
+              exprText += ec;
+              this.advance();
+              while (this.pos < this.src.length) {
+                const sc = this.src[this.pos]!;
+                if (sc === "\\") {
+                  exprText += sc;
+                  this.advance();
+                  if (this.pos < this.src.length) {
+                    exprText += this.src[this.pos]!;
+                    this.advance();
+                  }
+                } else if (sc === '"') {
+                  exprText += sc;
+                  this.advance();
+                  break;
+                } else {
+                  exprText += sc;
+                  this.advance();
+                }
+              }
+            } else if (ec === "'") {
+              // Char literal
+              exprText += ec;
+              this.advance();
+              while (this.pos < this.src.length) {
+                const sc = this.src[this.pos]!;
+                if (sc === "\\") {
+                  exprText += sc;
+                  this.advance();
+                  if (this.pos < this.src.length) { exprText += this.src[this.pos]!; this.advance(); }
+                } else if (sc === "'") {
+                  exprText += sc;
+                  this.advance();
+                  break;
+                } else {
+                  exprText += sc;
+                  this.advance();
+                }
+              }
+            } else {
+              exprText += ec;
+              this.advance();
+            }
           }
           templateParts.push(`\${${exprText}}`);
         } else if (isIdentStart(this.peek(1) ?? "")) {
@@ -580,9 +626,8 @@ export class Lexer {
         break;
       }
       const c = this.src[this.pos]!;
-      if (c === "\n") this.line++; // no col tracking in raw strings
       value += c;
-      this.advance();
+      this.advance(); // advance() already tracks line/col correctly
     }
 
     if (!closed) {
@@ -852,11 +897,13 @@ export class Lexer {
 // ---------------------------------------------------------------------------
 
 function isIdentStart(ch: string): boolean {
-  return /[a-zA-Z_]/.test(ch);
+  const c = ch.charCodeAt(0);
+  return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c === 95; // A-Z | a-z | _
 }
 
 function isIdentContinue(ch: string): boolean {
-  return /[a-zA-Z0-9_]/.test(ch);
+  const c = ch.charCodeAt(0);
+  return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c === 95; // A-Z | a-z | 0-9 | _
 }
 
 function isDigit(ch: string): boolean {

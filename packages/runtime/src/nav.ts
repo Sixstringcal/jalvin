@@ -66,6 +66,8 @@ export class NavController {
   private readonly _backStack: BackStackEntry[] = [];
   private readonly _currentEntry: MutableStateFlow<BackStackEntry | null>;
   private _resolver: ((dest: string) => BackStackEntry | null) | null = null;
+  // Stored so the listener can be removed when the controller is disposed.
+  private _hashChangeHandler: (() => void) | null = null;
 
   constructor() {
     this._currentEntry = new MutableStateFlow<BackStackEntry | null>(null);
@@ -80,16 +82,37 @@ export class NavController {
   }
 
   _initFromHash(startDestination: string): void {
+    // Remove any previously-registered listener to avoid duplicates.
+    this._removeHashListener();
+
     const hash = typeof window !== "undefined" ? window.location.hash : "";
     const dest = hash.startsWith("#/") ? hash.slice(2) : startDestination;
     this._navigateTo(dest);
 
     if (typeof window !== "undefined") {
-      window.addEventListener("hashchange", () => {
+      this._hashChangeHandler = () => {
         const h = window.location.hash;
         const d = h.startsWith("#/") ? h.slice(2) : startDestination;
-        this._navigateTo(d);
-      });
+        // Only push if this is genuinely a new destination (not a programmatic
+        // navigation that already updated the back stack via navigate()).
+        const current = this._currentEntry.value;
+        if (!current || current.destination !== d) {
+          this._navigateTo(d);
+        }
+      };
+      window.addEventListener("hashchange", this._hashChangeHandler);
+    }
+  }
+
+  /** Remove the hashchange listener. Call when the NavHost is unmounted. */
+  dispose(): void {
+    this._removeHashListener();
+  }
+
+  private _removeHashListener(): void {
+    if (this._hashChangeHandler && typeof window !== "undefined") {
+      window.removeEventListener("hashchange", this._hashChangeHandler);
+      this._hashChangeHandler = null;
     }
   }
 
@@ -119,10 +142,11 @@ export class NavController {
       }
     }
 
+    // Push the destination onto the back stack directly, then sync the URL.
+    // This avoids the hashchange listener pushing a duplicate entry.
+    this._navigateTo(destination);
     if (typeof window !== "undefined") {
-      window.location.hash = `#/${destination}`;
-    } else {
-      this._navigateTo(destination);
+      history.pushState(null, "", `#/${destination}`);
     }
   }
 
@@ -132,7 +156,6 @@ export class NavController {
     const prev = this._backStack[this._backStack.length - 1] ?? null;
     this._currentEntry.value = prev;
     if (prev && typeof window !== "undefined") {
-      // replaceState does not fire hashchange, so no re-push into _backStack
       history.replaceState(null, "", `#/${prev.destination}`);
     }
     return true;

@@ -285,6 +285,111 @@ describe("Lexer — errors", () => {
   });
 });
 
+// ── Fix #1: raw string line counting ─────────────────────────────────────────
+describe("Lexer — raw string line tracking (fix: no double line-count)", () => {
+  it("correctly counts lines after a raw string containing newlines", () => {
+    // The token after the raw string should be on the right line.
+    const src = `val s = """\nhello\nworld\n"""\nval x = 1`;
+    const diag = new DiagnosticBag();
+    const toks = lex(src, "<test>", diag);
+    expect(diag.items.filter((d) => d.severity === "error")).toHaveLength(0);
+    // Find the 'x' identifier token and check its line number.
+    const xTok = toks.find((t) => t.kind === "Identifier" && t.text === "x");
+    expect(xTok).toBeDefined();
+    // The raw string spans lines 0-3; "val x = 1" is on line 4.
+    expect(xTok!.span.startLine).toBe(4);
+  });
+
+  it("raw string with many newlines does not accumulate extra lines", () => {
+    const src = `"""line1\nline2\nline3"""\nafter`;
+    const diag = new DiagnosticBag();
+    const toks = lex(src, "<test>", diag);
+    const afterTok = toks.find((t) => t.kind === "Identifier" && t.text === "after");
+    expect(afterTok).toBeDefined();
+    // raw string ends at line 2; "after" is on line 3
+    expect(afterTok!.span.startLine).toBe(3);
+  });
+
+  it("raw string produces correct value regardless of newline count", () => {
+    const src = '"""\nhello\nworld\n"""';
+    const diag = new DiagnosticBag();
+    const toks = lex(src, "<test>", diag);
+    const raw = toks.find((t) => t.kind === "RawStringLiteral");
+    expect(raw).toBeDefined();
+    expect(raw!.value).toBe("\nhello\nworld\n");
+  });
+});
+
+// ── Fix #2: string template nested strings ────────────────────────────────────
+describe("Lexer — string template nested strings (fix: depth tracking)", () => {
+  it("handles a string containing a closing brace inside ${ }", () => {
+    // "x ${\"a}b\"}" — the } inside the nested string must not close the expr
+    const src = `"x ${"a}b"}"`;
+    const diag = new DiagnosticBag();
+    const toks = lex(src, "<test>", diag);
+    expect(diag.items.filter((d) => d.severity === "error")).toHaveLength(0);
+    const str = toks.find((t) => t.kind === "StringLiteral");
+    expect(str).toBeDefined();
+    // The value encodes the template; the outer string should close cleanly.
+    expect(str!.text).toBe(`"x ${"a}b"}"`);
+  });
+
+  it("handles nested braces inside ${ } correctly", () => {
+    const src = `"count = ${"{}"}"`;
+    const diag = new DiagnosticBag();
+    const toks = lex(src, "<test>", diag);
+    expect(diag.items.filter((d) => d.severity === "error")).toHaveLength(0);
+    const str = toks.find((t) => t.kind === "StringLiteral");
+    expect(str).toBeDefined();
+  });
+
+  it("handles escape sequences inside nested string in ${ }", () => {
+    const src = `"hello \${"world\\"s"}"`;
+    const diag = new DiagnosticBag();
+    const toks = lex(src, "<test>", diag);
+    expect(diag.items.filter((d) => d.severity === "error")).toHaveLength(0);
+    const str = toks.find((t) => t.kind === "StringLiteral");
+    expect(str).toBeDefined();
+  });
+
+  it("simple $identifier template still works", () => {
+    const src = `"Hello $name!"`;
+    const diag = new DiagnosticBag();
+    const toks = lex(src, "<test>", diag);
+    expect(diag.items.filter((d) => d.severity === "error")).toHaveLength(0);
+    const str = toks.find((t) => t.kind === "StringLiteral");
+    expect(str).toBeDefined();
+    expect(typeof str!.value).toBe("string");
+    expect(str!.value as string).toContain("${name}");
+  });
+});
+
+// ── Fix #3: isIdentStart/isIdentContinue performance ─────────────────────────
+describe("Lexer — identifier classification correctness", () => {
+  it("tokenises identifiers with all valid chars", () => {
+    const src = "foo_bar_baz_123";
+    const toks = tokens(src);
+    expect(toks[0]?.kind).toBe("Identifier");
+    expect(toks[0]?.text).toBe("foo_bar_baz_123");
+  });
+
+  it("underscore alone is Underscore token, not Identifier", () => {
+    const toks = tokens("_");
+    expect(toks[0]?.kind).toBe("Underscore");
+  });
+
+  it("digits alone do not start an identifier", () => {
+    const toks = tokens("123abc");
+    expect(toks[0]?.kind).toBe("IntLiteral");
+  });
+
+  it("identifier starting with uppercase is tokenised", () => {
+    const toks = tokens("MyClass");
+    expect(toks[0]?.kind).toBe("Identifier");
+    expect(toks[0]?.text).toBe("MyClass");
+  });
+});
+
 // Bug: PlusPlus and MinusMinus tokens are missing from ASI_SET, so
 // a newline after i++ or i-- does not insert a semicolon.
 describe("Lexer — ASI after ++ and -- (Bug: missing from ASI_SET)", () => {
