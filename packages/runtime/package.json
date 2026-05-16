@@ -1,6 +1,6 @@
 {
   "name": "@jalvin/runtime",
-  "version": "2.0.45",
+  "version": "2.0.46",
   "description": "Jalvin runtime — Bibi HTTP client, coroutines, StateFlow, ViewModel, UI reactivity",
   "type": "module",
   "main": "dist/index.js",
@@ -30,6 +30,7 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@vitest/coverage-v8": "^2.1.9",
+    "jsdom": "^29.1.1",
     "typescript": "^5.4.0",
     "vitest": "^2.1.9"
   }

@@ -199,8 +199,13 @@ export function render(rootComponent: () => VNode, container: HTMLElement): void
   const update = () => {
     renderCount++;
     activeSubscriber = update;
+
+    // On first mount there is no previous component tree, so any values sitting in the
+    // global hookState belong to a prior render() call and must not be reused.
+    if (oldVNode === null) hookState = [];
+
     resetHooks();
-    
+
     // Save current active element (focus) and selection
     let activeId = "";
     if (document.activeElement && document.activeElement.id) {
@@ -208,20 +213,34 @@ export function render(rootComponent: () => VNode, container: HTMLElement): void
     } else if (document.activeElement && document.activeElement.tagName === "INPUT") {
       activeId = (document.activeElement as HTMLInputElement).name;
     }
-    
-    const newVNode = rootComponent();
-    
+
+    let newVNode = rootComponent();
+
+    // Detect root-level component swap via the `key` prop. When two components share the same
+    // root tag (e.g. both compile to <div>) but carry different keys, the global hookState from
+    // the outgoing component poisons the incoming one — `remember(fn, [])` slots collide and
+    // the new component silently reuses the old component's memoized values.
+    // Fix: if the root key changed, wipe hookState and re-render synchronously so the incoming
+    // component starts with a clean hook slate. The first (poisoned) render is never painted.
+    const oldKey = (oldVNode as VNode | null)?.props?.key;
+    const newKey = (newVNode as VNode)?.props?.key;
+    if (newKey !== undefined && oldKey !== undefined && newKey !== oldKey) {
+      hookState = [];
+      resetHooks();
+      newVNode = rootComponent();
+    }
+
     // Patch the DOM instead of recreating it
     patch(container, newVNode, oldVNode);
     oldVNode = newVNode;
     (container as any)._jalvin_vnode = oldVNode;
-    
+
     // Restore focus if possible
     if (activeId) {
       const toFocus = document.getElementById(activeId) || document.querySelector(`input[name="${activeId}"]`);
       if (toFocus) (toFocus as HTMLElement).focus();
     }
-    
+
     activeSubscriber = null;
   };
 
