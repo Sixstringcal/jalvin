@@ -43,8 +43,8 @@ importers:
   packages/cli:
     dependencies:
       '@jalvin/compiler':
-        specifier: 2.0.43
-        version: 2.0.43
+        specifier: 2.0.48
+        version: 2.0.48
       vite:
         specifier: ^5.0.0
         version: 5.4.21(@types/node@20.19.40)(terser@5.47.1)
@@ -55,6 +55,9 @@ importers:
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@20.19.40)(jsdom@29.1.1)(terser@5.47.1)
 
   packages/compiler:
     devDependencies:
@@ -116,8 +119,8 @@ importers:
   packages/vite-plugin:
     dependencies:
       '@jalvin/compiler':
-        specifier: 2.0.43
-        version: 2.0.43
+        specifier: 2.0.48
+        version: 2.0.48
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
@@ -149,8 +152,8 @@ importers:
   packages/webpack-plugin:
     dependencies:
       '@jalvin/compiler':
-        specifier: ^2.0.43
-        version: 2.0.43
+        specifier: ^2.0.48
+        version: 2.0.48
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
@@ -412,8 +415,8 @@ packages:
     resolution: {integrity: sha512-+Sg6GCR/wy1oSmQDFq4LQDAhm3ETKnorxN+y5nbLULOR3P0c14f2Wurzj3/xqPXtasLFfHd5iRFQ7AJt4KH2cw==}
     engines: {node: '>=8'}
 
-  '@jalvin/compiler@2.0.43':
-    resolution: {integrity: sha512-dLS7KkQ4Ty/Lufz/MwDWSm0r5vWk3pGIrbXk7ABn2gLdD5SmOhTTlR2iDLeG2t3Y5YekkpT/bplmcwRgFiryiA==}
+  '@jalvin/compiler@2.0.48':
+    resolution: {integrity: sha512-kY6X31QyRAPfFRE/WKbefEWIGNNaBoSHKJDBqRlQzAmvn9FXxsAe/OxahLjk3WEvqkNPS1/n/Dxhxv5W9hqj+w==}
 
   '@jalvin/runtime@2.0.48':
     resolution: {integrity: sha512-rB9tf9rnodkExowImV+phNBInz+z2lxQUxTrYKFkj4kRoNj2UjYOfGKhCV1k5F6zZZbKCS69Iu5NjYiWVHTpTw==}
@@ -1609,7 +1612,7 @@ snapshots:
 
   '@istanbuljs/schema@0.1.6': {}
 
-  '@jalvin/compiler@2.0.43': {}
+  '@jalvin/compiler@2.0.48': {}
 
   '@jalvin/runtime@2.0.48': {}
 

@@ -12,6 +12,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { build as viteBuild } from "vite";
 import { compile } from "@jalvin/compiler";
 import { loadConfig } from "./config.js";
 
@@ -57,7 +58,7 @@ Config:
 // Argument parsing
 // ---------------------------------------------------------------------------
 
-interface CliArgs {
+export interface CliArgs {
   command: string;
   files: string[];
   outDir: string | null;
@@ -161,11 +162,94 @@ function colorize(color: boolean, code: string, text: string): string {
 // Build command
 // ---------------------------------------------------------------------------
 
-async function runBuild(args: CliArgs): Promise<void> {
+export async function runBuild(args: CliArgs): Promise<void> {
   const config = await loadConfig(process.cwd());
   const outDir = args.outDir ?? config.outDir ?? "dist";
-  const inputGlobs = args.files.length > 0 ? args.files : [config.rootDir ?? "src"];
 
+  // 1. Detect if this is a UI project by checking config entry options
+  if (config.entryFile && config.entryComponent) {
+    console.log("Building UI project for production using Vite...");
+    
+    let vite: any;
+    let jalvinPlugin: any;
+    try {
+      vite = await import("vite");
+    } catch {
+      console.error("error: 'vite' package not found. Please install it in your project:");
+      console.error("  npm install --save-dev vite");
+      process.exit(1);
+    }
+
+    try {
+      const pluginPath = path.resolve(process.cwd(), "node_modules/@jalvin/vite-plugin/dist/index.js");
+      const mod = await import(pluginPath);
+      jalvinPlugin = mod.jalvin || mod.default?.jalvin || mod.default || mod;
+    } catch (err) {
+      console.error("error: Failed to load local @jalvin/vite-plugin", err);
+      process.exit(1);
+    }
+
+    try {
+      await vite.build({
+        configFile: false,
+        root: process.cwd(),
+        base: process.env.VITE_BASE_PATH ?? "/",
+        build: {
+          outDir: outDir,
+          target: "esnext",
+          emptyOutDir: true,
+        },
+        plugins: [
+          jalvinPlugin({
+            entry: {
+              file: config.entryFile,
+              component: config.entryComponent,
+              title: config.title ?? "Jalvin App",
+            }
+          }),
+          {
+            name: "jalvin-react-blocker",
+            resolveId(id: string) {
+              if (id === "virtual:forbidden-react") return id;
+              return null;
+            },
+            load(id: string) {
+              if (id === "virtual:forbidden-react") {
+                return "export default {}; export const createElement = () => { throw new Error('React is forbidden in Jalvin projects'); };";
+              }
+              return null;
+            }
+          }
+        ],
+        optimizeDeps: {
+          exclude: ["@jalvin/runtime", "@jalvin/ui", "@jalvin/compiler", "react", "react-dom"],
+        },
+        esbuild: {
+          jsxFactory: "jalvinCreateElement",
+          jsxFragment: "Fragment",
+          define: {
+            "process.env.NODE_ENV": JSON.stringify("production"),
+          },
+        },
+        resolve: {
+          alias: {
+            src: path.resolve(process.cwd(), "src"),
+            "react": "virtual:forbidden-react",
+            "react-dom": "virtual:forbidden-react",
+          },
+          extensions: [".jalvin", ".mjs", ".js", ".mts", ".ts", ".jsx", ".tsx", ".json"],
+        }
+      });
+      console.log("\n✓ UI build complete.");
+    } catch (err) {
+      console.error("error: Vite production build failed:", err);
+      process.exit(1);
+    }
+    return;
+  }
+
+  // 2. Fallback to standard compile-only build for library projects
+  const inputGlobs = args.files.length > 0 ? args.files : [config.rootDir ?? "src"];
   const files = collectJalvinFiles(inputGlobs);
   if (files.length === 0) {
     console.warn("No .jalvin files found.");
@@ -202,6 +286,7 @@ async function runBuild(args: CliArgs): Promise<void> {
 
     fs.mkdirSync(path.dirname(outFile), { recursive: true });
     fs.writeFileSync(outFile, result.code, "utf8");
+
     const legacyTsx = outFile.replace(/\.ts$/, ".tsx");
     if (legacyTsx !== outFile && fs.existsSync(legacyTsx)) fs.rmSync(legacyTsx);
 
@@ -213,7 +298,9 @@ async function runBuild(args: CliArgs): Promise<void> {
   const icon = errors > 0 ? colorize(args.color, C.red, "✗") : colorize(args.color, C.green, "✓");
   const eSummary = errors > 0 ? colorize(args.color, C.red, `${errors} error${errors !== 1 ? "s" : ""}`) : colorize(args.color, C.green, "0 errors");
   const wSummary = warnings > 0 ? colorize(args.color, C.yellow, `${warnings} warning${warnings !== 1 ? "s" : ""}`) : "0 warnings";
+  
   console.log(`\n${icon}  Build complete — ${eSummary}, ${wSummary}  (${files.length} file${files.length !== 1 ? "s" : ""})`);
+  
   if (errors > 0) process.exit(1);
 }
 
