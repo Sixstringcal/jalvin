@@ -1304,10 +1304,72 @@ component fun Hello() {
 
   it("JSX text child sits inside the VNode children array as a plain string", () => {
     const code = gen(`
-component fun Greeting() {
-  return (<p>Welcome!</p>)
-}`);
+      component fun Greeting() {
+        return (<p>Welcome!</p>)
+      }`);
     expect(code).toContain('"Welcome!"');
     expect(code).not.toContain("createTextNode");
+  });
+});
+
+// ── Bug Fixes for Weddings Page App ──────────────────────────────────────────
+describe("Codegen — Weddings Page Bug Fixes", () => {
+  it("emits complete if-else if-else chains inside builder lambdas", () => {
+    const code = gen(`
+      import @jalvin/ui.Column
+      import @jalvin/ui.Text
+      component fun App(themeId: Int) {
+        return Column() {
+          if (themeId == 2) {
+            Text(text = "Theme Two")
+          } else if (themeId == 8) {
+            Text(text = "Theme Eight")
+          } else {
+            Text(text = "Theme Default")
+          }
+        }
+      }
+    `);
+    expect(code).toContain("if (jalvinEquals(themeId, 2)) {");
+    expect(code).toContain("} else if (jalvinEquals(themeId, 8)) {");
+    expect(code).toContain("} else {");
+    expect(code).toContain("__c.push(Text({ text: \"Theme Two\" }));");
+    expect(code).toContain("__c.push(Text({ text: \"Theme Eight\" }));");
+    expect(code).toContain("__c.push(Text({ text: \"Theme Default\" }));");
+  });
+
+  it("retains local variable declarations and assignments inside builder lambdas", () => {
+    const code = gen(`
+      import @jalvin/ui.Column
+      import @jalvin/ui.Text
+      component fun App(items: List<String>) {
+        return Column() {
+          var counter = 0
+          for (item in items) {
+            Text(text = item)
+            counter = counter + 1
+          }
+        }
+      }
+    `);
+    expect(code).toContain("let counter = 0;");
+    expect(code).toContain("counter = (counter + 1);");
+    expect(code).not.toContain("__c.push(counter = (counter + 1))");
+    expect(code).toContain("__c.push(Text({ text: item }));");
+  });
+
+  it("maps trailing lambda to custom component named callback prop", () => {
+    const code = gen(`
+      component fun AccordionDrawer(title: String, content: () -> Any) {
+        return content()
+      }
+      component fun App() {
+        return AccordionDrawer(title = "Welcome") {
+          "Hello"
+        }
+      }
+    `);
+    expect(code).toContain("AccordionDrawer({ title: \"Welcome\", content: (it) => \"Hello\" })");
+    expect(code).not.toContain("AccordionDrawer({ title: \"Welcome\" }, [");
   });
 });

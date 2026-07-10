@@ -1722,8 +1722,18 @@ export class CodeGenerator {
       }
       props.push(propName === val ? propName : `${propName}: ${val}`);
     }
+
+    const lastParamName = paramNames && paramNames.length > 0 ? paramNames[paramNames.length - 1] : undefined;
+    const isUserComponent = tagName !== null && this.userComponentNames.has(tagName);
+    const isTrailingLambdaMappedToProps = expr.trailingLambda && isUserComponent && lastParamName && lastParamName !== "children";
+
+    if (isTrailingLambdaMappedToProps) {
+      const lambdaStr = this.emitLambdaExpr(expr.trailingLambda!);
+      props.push(`${lastParamName}: ${lambdaStr}`);
+    }
+
     const propsStr = props.length > 0 ? `{ ${props.join(", ")} }` : "{}";
-    if (expr.trailingLambda) {
+    if (expr.trailingLambda && !isTrailingLambdaMappedToProps) {
       if (expr.trailingLambda.params.length > 0) {
         // Lambda with explicit params (e.g. builder-style): emit as a function, not DOM children
         return `${callee}(${propsStr}, [${this.emitLambdaExpr(expr.trailingLambda)}])`;
@@ -1734,33 +1744,185 @@ export class CodeGenerator {
     return `${callee}(${propsStr})`;
   }
 
-  private emitLambdaBodyAsDomChildren(lambda: AST.LambdaExpr): string {
-    const parts: string[] = [];
-    for (const stmt of lambda.body) {
-      if (stmt.kind === "ExprStmt") {
-        parts.push(this.emitExpr((stmt as AST.ExprStmt).expr));
-      } else if (stmt.kind === "IfStmt") {
-        const s = stmt as AST.IfStmt;
-        const cond = this.emitExpr(s.condition);
-        const thenExprs = s.then.statements.filter((st) => st.kind === "ExprStmt").map((st) => this.emitExpr((st as AST.ExprStmt).expr));
-        const elseExprs = s.else && s.else.kind === "Block" ? s.else.statements.filter((st) => st.kind === "ExprStmt").map((st) => this.emitExpr((st as AST.ExprStmt).expr)) : [];
-        
-        const thenStr = thenExprs.length > 0 ? `...(${cond} ? [${thenExprs.join(", ")}] : [])` : "";
-        const elseStr = elseExprs.length > 0 ? `...(!(${cond}) ? [${elseExprs.join(", ")}] : [])` : "";
-        if (thenStr) parts.push(thenStr);
-        if (elseStr) parts.push(elseStr);
-      } else if (stmt.kind === "ForStmt") {
+  private isComplexBuilderStmt(stmt: AST.Stmt): boolean {
+    if (stmt.kind !== "ExprStmt") {
+      return true;
+    }
+    const expr = stmt.expr;
+    if (expr.kind === "AssignExpr" || expr.kind === "CompoundAssignExpr") {
+      return true;
+    }
+    return false;
+  }
+
+  private emitBuilderStmt(stmt: AST.Stmt, arrayName: string): void {
+    switch (stmt.kind) {
+      case "Block":
+        for (const s of stmt.statements) {
+          this.emitBuilderStmt(s, arrayName);
+        }
+        break;
+      case "PropertyDecl":
+        this.emitPropertyDecl(stmt, false, true);
+        break;
+      case "DestructuringDecl":
+        this.emitDestructuringDecl(stmt, false);
+        break;
+      case "ExprStmt":
+        if (stmt.expr.kind === "AssignExpr" || stmt.expr.kind === "CompoundAssignExpr") {
+          this.w.writeIndentedLine(`${this.emitExpr(stmt.expr)};`);
+        } else {
+          this.w.writeIndentedLine(`${arrayName}.push(${this.emitExpr(stmt.expr)});`);
+        }
+        break;
+      case "IfStmt":
+        this.emitBuilderIf(stmt, arrayName);
+        break;
+      case "WhenStmt":
+        this.emitBuilderWhen(stmt, arrayName);
+        break;
+      case "ForStmt": {
         const s = stmt as AST.ForStmt;
         const iter = this.emitExpr(s.iterable);
         let bindingStr = typeof s.binding === "string" ? `const ${s.binding}` : s.binding.kind === "TupleDestructure" ? `const [${s.binding.names.map((n) => n ?? "_").join(", ")}]` : `const [${s.binding.key}, ${s.binding.value}]`;
-        const innerExprs = s.body.statements.filter((inner) => inner.kind === "ExprStmt").map((inner) => this.emitExpr((inner as AST.ExprStmt).expr));
-        if (innerExprs.length > 0) {
-          const pushes = innerExprs.map((e) => `__c.push(${e});`).join(" ");
-          parts.push(`...(() => { const __c: any[] = []; for (${bindingStr} of ${iter}) { ${pushes} } return __c; })()`);
+        this.w.writeIndentedLine(`for (${bindingStr} of ${iter}) {`);
+        this.w.pushIndent();
+        this.emitBuilderStmt(s.body, arrayName);
+        this.w.popIndent();
+        this.w.writeIndentedLine("}");
+        break;
+      }
+      case "WhileStmt": {
+        const s = stmt as AST.WhileStmt;
+        this.w.writeIndentedLine(`while (${this.emitExpr(s.condition)}) {`);
+        this.w.pushIndent();
+        this.emitBuilderStmt(s.body, arrayName);
+        this.w.popIndent();
+        this.w.writeIndentedLine("}");
+        break;
+      }
+      case "DoWhileStmt": {
+        const s = stmt as AST.DoWhileStmt;
+        this.w.writeIndentedLine(`do {`);
+        this.w.pushIndent();
+        this.emitBuilderStmt(s.body, arrayName);
+        this.w.popIndent();
+        this.w.writeIndentedLine(`} while (${this.emitExpr(s.condition)});`);
+        break;
+      }
+      case "TryCatchStmt": {
+        const s = stmt as AST.TryCatchStmt;
+        this.w.writeIndentedLine(`try {`);
+        this.w.pushIndent();
+        this.emitBuilderStmt(s.body, arrayName);
+        this.w.popIndent();
+        for (const c of s.catches) {
+          this.w.writeIndentedLine(`} catch (${c.name}) {`);
+          this.w.pushIndent();
+          this.emitBuilderStmt(c.body, arrayName);
+          this.w.popIndent();
+        }
+        if (s.finally) {
+          this.w.writeIndentedLine(`} finally {`);
+          this.w.pushIndent();
+          this.emitBuilderStmt(s.finally, arrayName);
+          this.w.popIndent();
+        }
+        this.w.writeIndentedLine(`}`);
+        break;
+      }
+      default:
+        this.emitStmt(stmt);
+        break;
+    }
+  }
+
+  private emitBuilderIf(stmt: AST.IfStmt, arrayName: string, isElseIf = false): void {
+    const cond = this.emitExpr(stmt.condition);
+    if (isElseIf) {
+      this.w.write(`if (${cond}) {\n`);
+    } else {
+      this.w.writeIndentedLine(`if (${cond}) {`);
+    }
+    this.w.pushIndent();
+    this.emitBuilderStmt(stmt.then, arrayName);
+    this.w.popIndent();
+    if (stmt.else) {
+      if (stmt.else.kind === "IfStmt") {
+        this.w.writeIndented("} else ");
+        this.emitBuilderIf(stmt.else, arrayName, true);
+      } else {
+        this.w.writeIndentedLine("} else {");
+        this.w.pushIndent();
+        this.emitBuilderStmt(stmt.else, arrayName);
+        this.w.popIndent();
+        this.w.writeIndentedLine("}");
+      }
+    } else {
+      this.w.writeIndentedLine("}");
+    }
+  }
+
+  private emitBuilderWhen(stmt: AST.WhenStmt, arrayName: string): void {
+    const subjectVar = stmt.subject ? "__when_subject__" : null;
+    if (stmt.subject) {
+      const binding = stmt.subject.binding ?? subjectVar!;
+      this.w.writeIndentedLine(`const ${binding} = ${this.emitExpr(stmt.subject.expr)};`);
+    }
+    let first = true;
+    for (const branch of stmt.branches) {
+      if (branch.isElse) {
+        this.w.writeIndentedLine(first ? `{` : `} else {`);
+      } else {
+        const cond = branch.conditions.map((c) => this.emitWhenCondition(c, subjectVar ?? "")).join(" || ");
+        this.w.writeIndentedLine(first ? `if (${cond}) {` : `} else if (${cond}) {`);
+      }
+      first = false;
+      this.w.pushIndent();
+      if (branch.body.kind === "Block") {
+        this.emitBuilderStmt(branch.body, arrayName);
+      } else {
+        if (branch.body.kind === "AssignExpr" || branch.body.kind === "CompoundAssignExpr") {
+          this.w.writeIndentedLine(`${this.emitExpr(branch.body)};`);
+        } else {
+          this.w.writeIndentedLine(`${arrayName}.push(${this.emitExpr(branch.body)});`);
         }
       }
+      this.w.popIndent();
     }
-    return parts.join(", ");
+    this.w.writeIndentedLine(`}`);
+  }
+
+  private emitLambdaBodyAsDomChildren(lambda: AST.LambdaExpr): string {
+    const hasComplex = lambda.body.some((s) => this.isComplexBuilderStmt(s));
+    if (!hasComplex) {
+      const parts: string[] = [];
+      for (const stmt of lambda.body) {
+        if (stmt.kind === "ExprStmt") {
+          parts.push(this.emitExpr(stmt.expr));
+        }
+      }
+      return parts.join(", ");
+    }
+
+    const saved = this.w;
+    const tmp = new Writer();
+    (tmp as any).indent = (saved as any).indent;
+    (this as any).w = tmp;
+    try {
+      this.w.writeLine("(() => {");
+      this.w.pushIndent();
+      this.w.writeIndentedLine("const __c: any[] = [];");
+      for (const stmt of lambda.body) {
+        this.emitBuilderStmt(stmt, "__c");
+      }
+      this.w.writeIndentedLine("return __c;");
+      this.w.popIndent();
+      this.w.writeIndented("})()");
+    } finally {
+      (this as any).w = saved;
+    }
+    return `...${tmp.output.trim()}`;
   }
 
   private emitLambdaExpr(expr: AST.LambdaExpr): string {
