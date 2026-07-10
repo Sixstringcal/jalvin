@@ -1692,7 +1692,16 @@ export class CodeGenerator {
       calleeExpr.kind === "MemberExpr" ? calleeExpr.member :
       null;
     if (name !== null && this.allComponentLikeNames.has(name)) return false;
-    return this.typeMap.get(calleeExpr)?.tag === "class";
+
+    const tag = this.typeMap.get(calleeExpr)?.tag;
+    if (tag === "class") return true;
+
+    // Fallback for imported/unresolved symbols whose types are unknown
+    if (tag === "unknown" || !tag) {
+      return name !== null && /^[A-Z]/.test(name);
+    }
+
+    return false;
   }
 
   private emitComponentCall(expr: AST.CallExpr): string {

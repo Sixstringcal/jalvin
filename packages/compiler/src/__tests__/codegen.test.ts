@@ -1177,6 +1177,25 @@ fun test() {
     expect(code).not.toContain("new lowerCaseFactory");
     expect(code).toContain("lowerCaseFactory(1)");
   });
+
+  it("emits new for imported capital-case classes (whose types are unknown)", () => {
+    const code = gen(`
+import @jalvin/runtime.MutableStateFlow
+fun test() {
+  val flow = MutableStateFlow("")
+}`);
+    expect(code).toContain("new MutableStateFlow(\"\")");
+  });
+
+  it("does not emit new for imported camelCase functions", () => {
+    const code = gen(`
+import @jalvin/runtime.mutableStateOf
+fun test() {
+  val state = mutableStateOf("")
+}`);
+    expect(code).not.toContain("new mutableStateOf");
+    expect(code).toContain("mutableStateOf(\"\")");
+  });
 });
 
 // ── Fix #5: in/!in — when-condition compiles to .includes() ──────────────────
