@@ -43,8 +43,8 @@ importers:
   packages/cli:
     dependencies:
       '@jalvin/compiler':
-        specifier: 2.0.48
-        version: 2.0.48
+        specifier: 2.0.52
+        version: link:../compiler
       vite:
         specifier: ^5.0.0
         version: 5.4.21(@types/node@20.19.40)(terser@5.47.1)
@@ -95,8 +95,8 @@ importers:
   packages/ui:
     devDependencies:
       '@jalvin/runtime':
-        specifier: 2.0.48
-        version: 2.0.48
+        specifier: 2.0.52
+        version: link:../runtime
       '@testing-library/dom':
         specifier: ^10.4.1
         version: 10.4.1
@@ -119,8 +119,8 @@ importers:
   packages/vite-plugin:
     dependencies:
       '@jalvin/compiler':
-        specifier: 2.0.48
-        version: 2.0.48
+        specifier: 2.0.52
+        version: link:../compiler
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
@@ -152,8 +152,8 @@ importers:
   packages/webpack-plugin:
     dependencies:
       '@jalvin/compiler':
-        specifier: ^2.0.48
-        version: 2.0.48
+        specifier: 2.0.52
+        version: link:../compiler
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
@@ -414,12 +414,6 @@ packages:
   '@istanbuljs/schema@0.1.6':
     resolution: {integrity: sha512-+Sg6GCR/wy1oSmQDFq4LQDAhm3ETKnorxN+y5nbLULOR3P0c14f2Wurzj3/xqPXtasLFfHd5iRFQ7AJt4KH2cw==}
     engines: {node: '>=8'}
-
-  '@jalvin/compiler@2.0.48':
-    resolution: {integrity: sha512-kY6X31QyRAPfFRE/WKbefEWIGNNaBoSHKJDBqRlQzAmvn9FXxsAe/OxahLjk3WEvqkNPS1/n/Dxhxv5W9hqj+w==}
-
-  '@jalvin/runtime@2.0.48':
-    resolution: {integrity: sha512-rB9tf9rnodkExowImV+phNBInz+z2lxQUxTrYKFkj4kRoNj2UjYOfGKhCV1k5F6zZZbKCS69Iu5NjYiWVHTpTw==}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -1611,10 +1605,6 @@ snapshots:
       wrap-ansi-cjs: wrap-ansi@7.0.0
 
   '@istanbuljs/schema@0.1.6': {}
-
-  '@jalvin/compiler@2.0.48': {}
-
-  '@jalvin/runtime@2.0.48': {}
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:

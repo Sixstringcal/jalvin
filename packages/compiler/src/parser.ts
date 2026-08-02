@@ -92,7 +92,39 @@ export class Parser {
       this.advance();
       path.push("@" + this.expectIdentOrKeyword());
     } else {
-      path.push(this.expectIdentOrKeyword());
+      // Parse leading relative prefix
+      let hasLeading = false;
+      while (
+        this.check(TokenKind.Dot) ||
+        this.check(TokenKind.DotDot) ||
+        this.check(TokenKind.Slash)
+      ) {
+        hasLeading = true;
+        if (this.check(TokenKind.Dot)) {
+          this.advance();
+          path.push(".");
+        } else if (this.check(TokenKind.DotDot)) {
+          this.advance();
+          path.push("..");
+        } else if (this.check(TokenKind.Slash)) {
+          this.advance();
+          if (path.length === 0) {
+            path.push("");
+          }
+        }
+      }
+      // If we didn't have any leading dots/slashes, we MUST expect an identifier/keyword.
+      // If we did have leading dots/slashes, we expect one unless the next token is a star.
+      if (
+        !hasLeading ||
+        (!this.check(TokenKind.Star) &&
+          (this.check(TokenKind.Identifier) ||
+            this.check(TokenKind.KwPackage) ||
+            this.check(TokenKind.KwImport) ||
+            this.current().text.match(/^[a-zA-Z_][a-zA-Z0-9_]*$/)))
+      ) {
+        path.push(this.expectIdentOrKeyword());
+      }
     }
 
     while (this.check(TokenKind.Dot) || this.check(TokenKind.Slash)) {

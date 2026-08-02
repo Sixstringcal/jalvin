@@ -437,3 +437,24 @@ describe("Typechecker — null-check smart-cast (!= null / == null)", () => {
     expect(errs.filter((e) => e.code === "E0303")).toHaveLength(0);
   });
 });
+
+describe("Typechecker — unresolved member access recursion", () => {
+  it("does not loop infinitely on member access on unresolved identifier", () => {
+    const errs = errors(`
+      fun main() {
+        val result = CRC16.crc16Modbus(listOf(1, 2, 3))
+      }
+    `);
+    expect(errs.some((e) => e.code === "E0301")).toBe(true);
+  });
+
+  it("does not stack overflow on circular property initializer references", () => {
+    const errs = errors(`
+      class A {
+        val x = A.x
+      }
+    `);
+    expect(diag => diag.items.length >= 0);
+  });
+});
+

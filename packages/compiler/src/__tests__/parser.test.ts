@@ -204,6 +204,20 @@ describe("Parser — imports", () => {
     expect(diag.hasErrors).toBe(false);
     expect(program.imports[0]?.alias).toBe("Http");
   });
+
+  it("parses relative star import", () => {
+    const { program, diag } = parseSource(`import ./CRC16.*`);
+    expect(diag.hasErrors).toBe(false);
+    expect(program.imports[0]?.path).toEqual([".", "CRC16"]);
+    expect(program.imports[0]?.star).toBe(true);
+  });
+
+  it("parses relative named import with dot-dot prefix", () => {
+    const { program, diag } = parseSource(`import ../utils.CRC16`);
+    expect(diag.hasErrors).toBe(false);
+    expect(program.imports[0]?.path).toEqual(["..", "utils", "CRC16"]);
+    expect(program.imports[0]?.star).toBe(false);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -300,6 +300,7 @@ export class TypeChecker {
   private hasWildcardJalvinImport = false;
   /** Map from node to resolved type (for IDE use) */
   readonly typeMap = new Map<object, JType>();
+  private readonly activeChecks = new Set<AST.Expr>();
   /**
    * Binary expressions that resolve to operator overloads.
    * Maps AST.BinaryExpr → the method name to call (e.g. "plus", "compareTo").
@@ -1119,9 +1120,20 @@ export class TypeChecker {
   // ── Expression type inference ──────────────────────────────────────────────
 
   checkExpr(expr: AST.Expr): JType {
-    const type = this.inferExpr(expr);
-    this.typeMap.set(expr, type);
-    return type;
+    if (this.typeMap.has(expr)) {
+      return this.typeMap.get(expr)!;
+    }
+    if (this.activeChecks.has(expr)) {
+      return T_UNKNOWN;
+    }
+    this.activeChecks.add(expr);
+    try {
+      const type = this.inferExpr(expr);
+      this.typeMap.set(expr, type);
+      return type;
+    } finally {
+      this.activeChecks.delete(expr);
+    }
   }
 
   private inferExpr(expr: AST.Expr): JType {
@@ -2168,6 +2180,7 @@ export class TypeChecker {
         }
         if (m.kind === "PropertyDecl" && m.name === member) {
           if (m.type) return this.resolveTypeRef(m.type);
+          if (this.typeMap.has(m)) return this.typeMap.get(m)!;
           // Infer type from delegate (e.g. `val x by lazy { expr }`)
           if (m.delegate) return this.inferDelegateType(m.delegate);
           // Infer type from initializer
